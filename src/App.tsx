@@ -24,6 +24,7 @@ import All from "@/pages/All";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { ProfileCompletionGuard } from "@/components/auth/ProfileCompletionGuard";
 import { OnboardingGuard } from "@/components/auth/OnboardingGuard";
+import { AnalyticsTracker } from "@/components/analytics/AnalyticsTracker";
 
 // Optimized QueryClient configuration for maximum performance
 const queryClient = new QueryClient({
@@ -90,6 +91,7 @@ function App() {
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <AnalyticsTracker />
             <AppContent />
           </BrowserRouter>
         </TooltipProvider>
