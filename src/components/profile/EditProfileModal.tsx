@@ -21,6 +21,14 @@ interface EditProfileModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const normalizeHandle = (value: string) =>
+  value
+    .trim()
+    .replace(/^@+/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
 export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -51,7 +59,7 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
 
         if (profile) {
           setProfileRecord(profile);
-          setHandlePreview(deriveProfileHandle(profile, 'user'));
+          setHandlePreview(normalizeHandle(deriveProfileHandle(profile, 'user')));
           setBio(profile.bio || '');
           setAvatarUrl(profile.avatar_url || '');
           setAvatarPreview(profile.avatar_url || '');
@@ -159,11 +167,22 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
 
   const handleSave = async () => {
     if (!user) return;
+
+    const normalizedHandle = normalizeHandle(handlePreview);
+    if (!normalizedHandle) {
+      toast({
+        title: 'Invalid handle',
+        description: 'Please enter a handle using letters and numbers.',
+        variant: 'destructive',
+      });
+      return;
+    }
     
     setLoading(true);
     try {
       // Build update object with only non-empty values
       const updateData: any = {};
+      updateData.username = normalizedHandle;
       if (bio !== undefined) updateData.bio = bio;
       if (avatarUrl !== undefined) updateData.avatar_url = avatarUrl;
       if (state !== undefined) updateData.state = state;
@@ -179,6 +198,9 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
       if (error) {
         console.error('Profile update error:', error);
         console.error('Error details:', JSON.stringify(error, null, 2));
+        if (error.code === '23505') {
+          throw new Error('This handle is already taken. Please choose another one.');
+        }
         throw error;
       }
 
@@ -186,9 +208,12 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
         throw new Error('Profile update returned no data');
       }
 
+      setHandlePreview(normalizedHandle);
+      setProfileRecord(data);
+
       toast({ 
         title: 'Profile updated successfully!',
-        description: 'Your profile picture has been updated.'
+        description: 'Your profile information has been updated.'
       });
       
       // Dispatch event to refresh UI components with the returned data
@@ -294,13 +319,13 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
               <Label htmlFor="profile-handle">Profile Handle</Label>
               <Input
                 id="profile-handle"
-                value={handlePreview ? `@${handlePreview}` : ''}
-                readOnly
-                disabled
-                className={`${inputStyles} cursor-not-allowed`}
+                value={handlePreview}
+                onChange={(e) => setHandlePreview(normalizeHandle(e.target.value))}
+                placeholder="username"
+                className={inputStyles}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Handles are generated from your full name and stay unique to you.
+                Your public handle appears as @username. Use letters and numbers; spaces turn into hyphens.
               </p>
             </div>
             <div>

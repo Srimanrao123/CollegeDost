@@ -33,26 +33,104 @@ export function useTrendingPosts(limit: number = 10) {
     try {
       setLoading(true);
 
-      // Fetch candidate posts (last 7 days + top by counts) to compute scores
-      const { data: postsData, error: postsError } = await supabase
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const recentThreshold = new Date(Date.now() - 14 * DAY_MS).toISOString();
+      const fallbackThreshold = new Date(Date.now() - 90 * DAY_MS).toISOString();
+
+      let candidatePosts: any[] = [];
+
+      // Primary dataset: recent posts (last 14 days)
+      const { data: recentPosts, error: recentError } = await supabase
         .from('posts')
         .select('*')
-        .gte('created_at', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString())
+        .gte('created_at', recentThreshold)
         .order('created_at', { ascending: false })
         .limit(500);
 
-      if (postsError) throw postsError;
+      if (recentError) throw recentError;
+      if (recentPosts) {
+        candidatePosts = [...recentPosts];
+      }
 
-      if (postsData && postsData.length > 0) {
-        // Fetch profiles
-        const userIds = [...new Set(postsData.map(p => p.user_id))];
+      const ensureCapacity = async () => {
+        if (candidatePosts.length >= limit || candidatePosts.length >= 500) {
+          return;
+        }
+
+        const existingIds = new Set(candidatePosts.map((post) => post.id));
+        const desiredAdditional = Math.max(limit * 3, 30);
+
+        // Fallback 1: highly liked posts
+        const { data: likedPosts, error: likedError } = await supabase
+          .from('posts')
+          .select('*')
+          .gte('created_at', fallbackThreshold)
+          .lt('created_at', recentThreshold)
+          .order('likes_count', { ascending: false, nullsFirst: false })
+          .limit(desiredAdditional);
+
+        if (!likedError && likedPosts) {
+          likedPosts.forEach((post) => {
+            if (!existingIds.has(post.id)) {
+              existingIds.add(post.id);
+              candidatePosts.push(post);
+            }
+          });
+        }
+
+        if (candidatePosts.length >= limit) {
+          return;
+        }
+
+        // Fallback 2: highly commented posts
+        const { data: commentedPosts, error: commentedError } = await supabase
+          .from('posts')
+          .select('*')
+          .order('comments_count', { ascending: false, nullsFirst: false })
+          .limit(desiredAdditional);
+
+        if (!commentedError && commentedPosts) {
+          commentedPosts.forEach((post) => {
+            if (!existingIds.has(post.id)) {
+              existingIds.add(post.id);
+              candidatePosts.push(post);
+            }
+          });
+        }
+
+        if (candidatePosts.length >= limit) {
+          return;
+        }
+
+        // Fallback 3: most recent posts overall
+        const { data: recentFallback, error: recentFallbackError } = await supabase
+          .from('posts')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(desiredAdditional);
+
+        if (!recentFallbackError && recentFallback) {
+          recentFallback.forEach((post) => {
+            if (!existingIds.has(post.id)) {
+              existingIds.add(post.id);
+              candidatePosts.push(post);
+            }
+          });
+        }
+      };
+
+      await ensureCapacity();
+
+      if (candidatePosts.length > 0) {
+        // Fetch profiles for candidates
+        const userIds = [...new Set(candidatePosts.map(p => p.user_id))];
         const { data: profilesData } = await supabase
           .from('profiles')
           .select('id, username, avatar_url')
           .in('id', userIds);
 
         // Fetch tags for all posts
-        const postIds = postsData.map(p => p.id);
+        const postIds = candidatePosts.map(p => p.id);
         const { data: postTagsData } = await (supabase as any)
           .from('post_tags')
           .select('post_id, tag_id, tags(name)')
@@ -95,7 +173,7 @@ export function useTrendingPosts(limit: number = 10) {
         };
 
         // Merge and score with views
-        const scored = (postsData as any[]).map((post: any) => {
+        const scored = (candidatePosts as any[]).map((post: any) => {
           const postWithTrend = post as any as { trend_score?: number | null; [k: string]: any };
           const baseLikes = postWithTrend.likes_count || 0;
           const baseComments = postWithTrend.comments_count || 0;
@@ -126,7 +204,35 @@ export function useTrendingPosts(limit: number = 10) {
 
         // Sort by score desc and limit
         scored.sort((a, b) => (b.trend_score || 0) - (a.trend_score || 0));
-        setPosts(scored.slice(0, limit));
+
+        const engaged = scored.filter((post) => {
+          const engagement =
+            (post.likes_count || 0) +
+            (post.comments_count || 0) +
+            (post.views_count || 0);
+          return engagement > 0;
+        });
+
+        const dedupe = (items: TrendingPost[]) => {
+          const seen = new Set<string>();
+          const result: TrendingPost[] = [];
+          items.forEach((item) => {
+            if (!seen.has(item.id)) {
+              seen.add(item.id);
+              result.push(item);
+            }
+          });
+          return result;
+        };
+
+        let finalPosts = dedupe(engaged).slice(0, limit);
+
+        if (finalPosts.length < limit) {
+          const remaining = dedupe(scored.filter((post) => !finalPosts.some((fp) => fp.id === post.id)));
+          finalPosts = [...finalPosts, ...remaining.slice(0, limit - finalPosts.length)];
+        }
+
+        setPosts(finalPosts.slice(0, limit));
       } else {
         setPosts([]);
       }

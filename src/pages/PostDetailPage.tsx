@@ -16,6 +16,7 @@ import { createRealtimeChannel } from "@/lib/realtime";
 import { removeTagsFromContent } from "@/lib/utils";
 import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } from "@/lib/profileDisplay";
 import { useNotificationTriggers } from "@/hooks/useNotificationTriggers";
+import { toast } from "sonner";
 
 export default function PostDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -26,12 +27,23 @@ export default function PostDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const { hasLiked, likesCount, toggleLike } = useLikes(id!, user?.id);
 
+  
   const handleLike = () => {
     if (!user) {
       navigate('/auth');
       return;
     }
     toggleLike();
+  };
+
+  const handleSharePost = () => {
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+    const shareUrl = `${window.location.origin}/post/${id}`;
+    navigator.clipboard.writeText(shareUrl);
+    toast( "Post link copied to your clipboard");
   };
   const { startTrackingPostView, stopTrackingPostView } = useNotificationTriggers();
 
@@ -305,9 +317,11 @@ export default function PostDetailPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="gap-2 hover:bg-transparent text-muted-foreground"
+            className="gap-2  text-muted-foreground"
+            onClick={handleSharePost}
           >
-            <Share2 className="h-5 w-5" />
+            <Share2 className="h-5 w-5" 
+             />
             Share
           </Button>
           <span className="ml-auto text-sm text-muted-foreground">

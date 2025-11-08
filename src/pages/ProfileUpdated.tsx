@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { PostCard } from "@/components/posts/PostCard";
 import { FollowButton } from "@/components/profile/FollowButton";
 import { FollowersModal } from "@/components/profile/FollowersModal";
 import { EditProfileModal } from "@/components/profile/EditProfileModal";
+import { EditBannerModal } from "@/components/profile/EditBannerModal";
 import { CreatePostDialog } from "@/components/posts/CreatePostDialog";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -21,12 +22,14 @@ import {
   deriveProfileInitial,
   type ProfileHandleSource,
 } from "@/lib/profileDisplay";
+import { useToast } from "@/hooks/use-toast";
 
 interface Profile {
   id: string;
   username: string;
   full_name?: string;
   avatar_url?: string | null;
+  banner_url?: string | null;
   bio?: string | null;
   state?: string | null;
   entrance_exam?: string[] | null;
@@ -45,9 +48,11 @@ const ProfileUpdated = () => {
   const { userId } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
 
   const profileId = userId || user?.id;
@@ -79,6 +84,40 @@ const ProfileUpdated = () => {
   const syncedProfileIdRef = useRef<string | null>(null);
   
   const loading = profileLoading || postsLoading;
+
+  const handleShareProfile = useCallback(async () => {
+    if (typeof window === "undefined") return;
+
+    const shareUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+
+      toast({
+        title: "Profile link copied!",
+        description: "Share it with your friends.",
+      });
+    } catch (error) {
+      console.error("Failed to copy profile link:", error);
+      toast({
+        title: "Unable to copy link",
+        description: shareUrl,
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
 
   // Reset sync ref when profile changes
   useEffect(() => {
@@ -544,15 +583,25 @@ const ProfileUpdated = () => {
   return (
     <div className="w-full overflow-hidden">
       {/* Clean Profile Banner - Cover Photo Only */}
-      <div className="relative w-full h-48 md:h-64 bg-gradient-to-r from-primary/20 via-primary/30 to-primary/20 overflow-hidden">
+      <div className="relative w-full h-48 md:h-64 overflow-hidden">
+        {profile.banner_url ? (
+          <>
+            <img
+              src={profile.banner_url}
+              alt="Profile banner"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/20 via-black/10 to-black/20 pointer-events-none" />
+          </>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-r from-primary/20 via-primary/30 to-primary/20 pointer-events-none" />
+        )}
         {isOwnProfile && (
           <Button
             variant="ghost"
             size="icon"
-            className="absolute top-4 right-4 bg-background/80 hover:bg-background/90 backdrop-blur-sm"
-            onClick={() => {
-              // Handle banner edit
-            }}
+            className="absolute top-4 right-4 z-10 bg-background/80 hover:bg-background/90 backdrop-blur-sm"
+            onClick={() => setIsBannerModalOpen(true)}
             aria-label="Edit banner"
           >
             <ImageIcon className="h-4 w-4" />
@@ -580,7 +629,7 @@ const ProfileUpdated = () => {
                   size="icon"
                   className="absolute bottom-0 right-0 h-8 w-8 rounded-full border-2 border-background shadow-md"
                   onClick={() => {
-                    // Handle avatar edit
+                    setIsEditModalOpen(true);
                   }}
                   aria-label="Edit avatar"
                 >
@@ -596,7 +645,7 @@ const ProfileUpdated = () => {
                 {deriveProfileDisplayName(profile as ProfileHandleSource)}
               </h1>
               <p className="text-sm md:text-base text-muted-foreground mb-3">
-                @{profileHandle}
+                @{deriveProfileHandle(profile as ProfileHandleSource, "anonymous")}
               </p>
 
               {/* Stats */}
@@ -660,9 +709,19 @@ const ProfileUpdated = () => {
               variant="outline"
               size="sm"
               className="hidden sm:inline-flex"
+              onClick={handleShareProfile}
             >
               <Share2 className="h-4 w-4 mr-2" />
               Share
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleShareProfile}
+              className="sm:hidden"
+              aria-label="Share profile"
+            >
+              <Share2 className="h-4 w-4" />
             </Button>
             {isOwnProfile ? (
               <>
@@ -898,6 +957,12 @@ const ProfileUpdated = () => {
 
       {isOwnProfile && (
         <>
+          <EditBannerModal
+            open={isBannerModalOpen}
+            onOpenChange={setIsBannerModalOpen}
+            profileId={profile.id}
+            initialBannerUrl={profile.banner_url ?? undefined}
+          />
           <EditProfileModal open={isEditModalOpen} onOpenChange={setIsEditModalOpen} />
           <CreatePostDialog open={isCreatePostOpen} onOpenChange={setIsCreatePostOpen} />
         </>

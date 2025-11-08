@@ -9,6 +9,7 @@ interface Profile {
   username: string;
   full_name?: string;
   avatar_url?: string;
+  banner_url?: string | null;
   bio?: string;
   state?: string;
   entrance_exam?: string[];
