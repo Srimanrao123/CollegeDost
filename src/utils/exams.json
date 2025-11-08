@@ -1,0 +1,50 @@
+{
+  "board_exams": {
+    "CBSE": [
+      "CBSE Class 12th",
+      "CBSE Class 10th"
+    ],
+    "StateBoard": [
+      "Maharashtra HSC (12th)",
+      "Tamil Nadu HSC (12th)",
+      "Kerala HSE (Plus Two)",
+      "Karnataka PUC (12th)",
+      "Andhra Pradesh Intermediate",
+      "Telangana Intermediate",
+      "West Bengal HS (12th)",
+      "Uttar Pradesh Intermediate",
+      "Bihar Intermediate",
+      "Madhya Pradesh HSSC (12th)",
+      "Rajasthan Senior Secondary",
+      "Gujarat HSC (12th)",
+      "Punjab Senior Secondary",
+      "Haryana Senior Secondary",
+      "Odisha CHSE (12th)",
+      "Assam HS (12th)",
+      "Jharkhand Intermediate",
+      "Chhattisgarh HSC (12th)",
+      "Uttarakhand Intermediate",
+      "Himachal Pradesh +2",
+      "Goa HSSC (12th)",
+      "Jammu & Kashmir 12th"
+    ]
+  },
+  "entrance_exams": [
+    "JEE",
+    "AP EAPCET",
+    "TS EAPCET",
+    "MHT-CET",
+    "KCET",
+    "KEAM",
+    "TNEA",
+    "WBJEE",
+    "OJEE",
+    "NAT (NIAT)",
+    "BITSAT",
+    "VITEEE",
+    "SRMJEEE",
+    "MET (Manipal)",
+    "AEEE (Amrita)",
+    "COMEDK UGET"
+  ]
+}
