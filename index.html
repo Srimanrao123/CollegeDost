@@ -23,14 +23,6 @@
     <!-- GA measurement id can be provided via Vite env (VITE_GA_MEASUREMENT_ID) or defaults to G-XXXXXXXXXX -->
     <script>
       (function () {
-        var envValue = "%VITE_GA_MEASUREMENT_ID%";
-        if (envValue && envValue !== "%VITE_GA_MEASUREMENT_ID%") {
-          window.__GA_MEASUREMENT_ID__ = envValue;
-        }
-      })();
-    </script>
-    <script>
-      (function () {
         var DEFAULT_GA_ID = "G-57TRBL5J9G";
         var measurementId = window.__GA_MEASUREMENT_ID__ || DEFAULT_GA_ID;
         window.__GA_MEASUREMENT_ID__ = measurementId;
