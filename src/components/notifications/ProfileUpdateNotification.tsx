@@ -6,13 +6,23 @@ import { Button } from "@/components/ui/button";
 import { X, UserCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 
+const DISMISSAL_KEY = 'profileUpdateNotificationDismissed';
+const NOTIFICATION_DELAY_DAYS = 1; // Show after 1 day
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
 export const ProfileUpdateNotification = () => {
   const { user } = useAuth();
   const [showNotification, setShowNotification] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    if (!user || dismissed) {
+    if (!user) {
+      setShowNotification(false);
+      return;
+    }
+
+    // Check if already dismissed
+    const isDismissed = localStorage.getItem(DISMISSAL_KEY) === 'true';
+    if (isDismissed) {
       setShowNotification(false);
       return;
     }
@@ -20,11 +30,21 @@ export const ProfileUpdateNotification = () => {
     const checkProfile = async () => {
       const { data: profile } = await (supabase as any)
         .from('profiles')
-        .select('full_name, avatar_url, bio, state, entrance_exam, onboarding_completed')
+        .select('full_name, avatar_url, bio, state, entrance_exam, onboarding_completed, created_at')
         .eq('id', user.id)
         .maybeSingle();
 
       if (!profile) {
+        setShowNotification(false);
+        return;
+      }
+
+      // Check if enough time has passed (1 day since account creation)
+      const accountCreatedAt = new Date(profile.created_at || user.created_at || Date.now()).getTime();
+      const timeElapsed = Date.now() - accountCreatedAt;
+      const requiredTime = NOTIFICATION_DELAY_DAYS * ONE_DAY_MS;
+
+      if (timeElapsed < requiredTime) {
         setShowNotification(false);
         return;
       }
@@ -37,7 +57,7 @@ export const ProfileUpdateNotification = () => {
         profile.state && profile.state.trim() !== '' &&
         profile.entrance_exam && Array.isArray(profile.entrance_exam) && profile.entrance_exam.length > 0;
 
-      // Show notification if profile is not complete
+      // Show notification if profile is not complete and enough time has passed
       setShowNotification(!isComplete);
 
       // If profile is complete, update onboarding_completed flag
@@ -50,9 +70,14 @@ export const ProfileUpdateNotification = () => {
     };
 
     checkProfile();
-  }, [user, dismissed]);
+  }, [user]);
 
-  if (!user || !showNotification || dismissed) return null;
+  const handleDismiss = () => {
+    localStorage.setItem(DISMISSAL_KEY, 'true');
+    setShowNotification(false);
+  };
+
+  if (!user || !showNotification) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-md">
@@ -84,7 +109,7 @@ export const ProfileUpdateNotification = () => {
             <Button 
               variant="ghost" 
               size="sm"
-              onClick={() => setDismissed(true)}
+              onClick={handleDismiss}
             >
               Dismiss
             </Button>
@@ -93,7 +118,7 @@ export const ProfileUpdateNotification = () => {
             variant="ghost"
             size="icon"
             className="h-6 w-6 shrink-0"
-            onClick={() => setDismissed(true)}
+            onClick={handleDismiss}
           >
             <X className="h-4 w-4" />
           </Button>

@@ -15,6 +15,8 @@ export const PushNotificationConsent = () => {
   const handleDismiss = () => {
     setShowConsent(false);
     localStorage.setItem('pushNotificationConsent', 'dismissed');
+    // Also set a separate dismissal key for consistency
+    localStorage.setItem('pushNotificationConsentDismissed', 'true');
   };
 
   return (

@@ -1,45 +1,72 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
 import { supabase } from '@/integrations/supabase/client';
+
+const DISMISSAL_KEY = 'pushNotificationConsentDismissed';
+const NOTIFICATION_DELAY_DAYS = 3; // Show after 3 days
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export function usePushNotifications() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [showConsent, setShowConsent] = useState(false);
-  const consentTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const sessionStartTimeRef = useRef<number>(Date.now());
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setShowConsent(false);
+      return;
+    }
 
-    // Check if we should show consent (after 2 minutes)
-    const checkConsentTimer = () => {
-      const timeElapsed = Date.now() - sessionStartTimeRef.current;
-      const twoMinutes = 2 * 60 * 1000;
-
-      // Check if user has already given consent
-      const hasConsent = localStorage.getItem('pushNotificationConsent') === 'granted';
-      
-      if (timeElapsed >= twoMinutes && !hasConsent && permission === 'default') {
-        setShowConsent(true);
-      }
-    };
+    // Check if already dismissed or granted
+    const consentStatus = localStorage.getItem('pushNotificationConsent');
+    if (consentStatus === 'dismissed' || consentStatus === 'granted' || consentStatus === 'denied') {
+      setShowConsent(false);
+      return;
+    }
 
     // Check permission status
     if ('Notification' in window) {
-      setPermission(Notification.permission);
+      const currentPermission = Notification.permission;
+      setPermission(currentPermission);
+      
+      // If already granted or denied, don't show
+      if (currentPermission !== 'default') {
+        setShowConsent(false);
+        return;
+      }
     }
 
-    // Start timer to check after 2 minutes
-    consentTimerRef.current = setInterval(checkConsentTimer, 1000);
+    const checkShouldShow = async () => {
+      try {
+        // Get user's account creation time
+        const { data: profile } = await (supabase as any)
+          .from('profiles')
+          .select('created_at')
+          .eq('id', user.id)
+          .maybeSingle();
 
-    return () => {
-      if (consentTimerRef.current) {
-        clearInterval(consentTimerRef.current);
+        const accountCreatedAt = new Date(
+          profile?.created_at || user.created_at || Date.now()
+        ).getTime();
+        
+        const timeElapsed = Date.now() - accountCreatedAt;
+        const requiredTime = NOTIFICATION_DELAY_DAYS * ONE_DAY_MS;
+
+        // Only show if 3 days have passed since account creation
+        if (timeElapsed >= requiredTime && permission === 'default') {
+          setShowConsent(true);
+        } else {
+          setShowConsent(false);
+        }
+      } catch (error) {
+        console.error('Error checking push notification consent:', error);
+        setShowConsent(false);
       }
     };
+
+    checkShouldShow();
   }, [user, permission]);
 
   const requestPermission = async () => {

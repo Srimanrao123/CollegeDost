@@ -38,15 +38,10 @@ const NotificationsUpdated = () => {
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">Notifications</h1>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="gap-2" onClick={markAllAsRead}>
-              <Check className="h-4 w-4" />
-              Mark all as read
-            </Button>
-            <Button variant="ghost" size="icon">
-              <Settings className="h-5 w-5" />
-            </Button>
-          </div>
+          <Button variant="ghost" size="sm" className="gap-2" onClick={markAllAsRead}>
+            <Check className="h-4 w-4" />
+            Mark all
+          </Button>
         </div>
 
         <div className="space-y-1">

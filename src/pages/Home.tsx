@@ -142,6 +142,7 @@ const Home = () => {
   }, [posts, selectedTags, user, interestedExams]);
 
   const actualFilteredPosts = useMemo(() => filteredPosts.posts, [filteredPosts]);
+  console.log(actualFilteredPosts);
   const isShowingAllDueToEmptyFilter = useMemo(() => filteredPosts.isShowingAllDueToEmptyFilter, [filteredPosts]);
 
   const sortPosts = (postsToSort: any[]) => {
