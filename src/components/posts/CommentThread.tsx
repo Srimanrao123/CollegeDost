@@ -36,6 +36,7 @@ function useResponsiveMaxDepth() {
 interface CommentThreadProps {
   comment: any;
   postId: string;
+  postSlug?: string | null; // Optional slug for navigation
   depth?: number;
   focusedId?: string;
   showContinueButton?: boolean; // NEW: optional prop to control button visibility
@@ -43,7 +44,8 @@ interface CommentThreadProps {
 
 export function CommentThread({ 
   comment, 
-  postId, 
+  postId,
+  postSlug,
   depth = 0, 
   focusedId,
   showContinueButton = true // NEW: default true
@@ -112,7 +114,8 @@ export function CommentThread({
   };
 
   const handleContinueThread = () => {
-    navigate(`/post/${postId}/comment/${comment.id}`);
+    const postUrl = postSlug || postId;
+    navigate(`/post/${postUrl}/comment/${comment.id}`);
   };
 
   return (

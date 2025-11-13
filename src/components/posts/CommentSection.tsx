@@ -11,9 +11,10 @@ import { EmojiPicker } from "@/components/ui/emoji-picker";
 
 interface CommentSectionProps {
   postId: string;
+  postSlug?: string | null; // Optional slug for navigation
 }
 
-export function CommentSection({ postId }: CommentSectionProps) {
+export function CommentSection({ postId, postSlug }: CommentSectionProps) {
   const { user } = useAuth();
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -140,6 +141,7 @@ export function CommentSection({ postId }: CommentSectionProps) {
               key={comment.id}
               comment={comment}
               postId={postId}
+              postSlug={postSlug}
               depth={0}
               showContinueButton={true} // Enable continue button for main post view
             />

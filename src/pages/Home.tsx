@@ -31,7 +31,7 @@ const Home = () => {
     }
     return undefined;
   }, [selectedTags, tagFilterMode]);
-
+  
   // Determine exam filter: only apply when no tags are selected and user has interested exams
   const examFilter = useMemo(() => {
     if (selectedTags.length > 0) {
@@ -210,11 +210,7 @@ const Home = () => {
         <div className="flex items-center justify-between mb-4 mt-6">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-semibold">
-              {selectedTags.length > 0 
-                ? `Posts tagged: ${selectedTags.join(', ')}`
-                : examFilter && examFilter.length > 0
-                ? "Posts For You"
-                : "All Posts"}
+             Posts For You
             </h2>
           </div>
           
@@ -236,19 +232,6 @@ const Home = () => {
                   ))}
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSelectedTags([]);
-                  window.dispatchEvent(new CustomEvent('tagsSelected', { 
-                    detail: { tags: [], mode: tagFilterMode } 
-                  }));
-                }}
-                className="ml-4"
-              >
-                Clear Tags
-              </Button>
             </div>
           </div>
         )}
@@ -294,6 +277,7 @@ const Home = () => {
                 <PostCard 
                   key={post.id}
                   id={post.id}
+                  slug={post.slug}
                   authorId={post.user_id}
                   author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, 'anonymous')}
                   timeAgo={getTimeAgo(post.created_at)}

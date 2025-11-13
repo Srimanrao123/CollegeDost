@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface PostCardProps {
   id: string;
+  slug?: string | null;
   authorId: string;
   author: string;
   location?: string;
@@ -46,6 +47,7 @@ interface PostCardProps {
 
 export const PostCard = ({
   id,
+  slug,
   authorId,
   author,
   location,
@@ -186,7 +188,7 @@ export const PostCard = ({
         </div>
 
         <Link 
-          to={`/post/${id}`} 
+          to={`/post/${slug && slug.trim() ? slug : id}`} 
           className="block space-y-3"
           onClick={handlePostClick}
         >
@@ -267,7 +269,7 @@ export const PostCard = ({
                     navigate('/auth');
                     return;
                   }
-                  navigate(`/post/${id}`);
+                  navigate(`/post/${slug && slug.trim() ? slug : id}`);
                 }}
               >
                 <MessageSquare className="h-4 w-4 text-muted-foreground" />

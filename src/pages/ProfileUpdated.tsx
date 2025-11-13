@@ -836,6 +836,7 @@ const ProfileUpdated = () => {
                     <PostCard
                       key={post.id}
                       id={post.id}
+                      slug={post.slug}
                       authorId={post.user_id}
                       author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, 'anonymous')}
                       timeAgo={formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
@@ -877,6 +878,7 @@ const ProfileUpdated = () => {
                     <PostCard
                       key={post.id}
                       id={post.id}
+                      slug={post.slug}
                       authorId={post.user_id}
                       author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, 'anonymous')}
                       timeAgo={formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
@@ -918,6 +920,7 @@ const ProfileUpdated = () => {
                     <PostCard
                       key={post.id}
                       id={post.id}
+                      slug={post.slug}
                       authorId={post.user_id}
                       author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, 'anonymous')}
                       timeAgo={formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}

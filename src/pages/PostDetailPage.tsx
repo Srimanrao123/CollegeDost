@@ -18,14 +18,21 @@ import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } f
 import { useNotificationTriggers } from "@/hooks/useNotificationTriggers";
 import { toast } from "sonner";
 
+// Helper to check if string is UUID
+function isUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
 export default function PostDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { hasLiked, likesCount, toggleLike } = useLikes(id!, user?.id);
+  // Only call useLikes when we have a post ID
+  const { hasLiked, likesCount, toggleLike } = useLikes(post?.id || null, user?.id);
 
   
   const handleLike = () => {
@@ -41,64 +48,305 @@ export default function PostDetailPage() {
       navigate('/auth');
       return;
     }
-    const shareUrl = `${window.location.origin}/post/${id}`;
+    // Use slug if available, otherwise fallback to ID
+    const postIdentifier = post?.slug || post?.id || slug || "";
+    const shareUrl = `${window.location.origin}/post/${postIdentifier}`;
     navigator.clipboard.writeText(shareUrl);
     toast( "Post link copied to your clipboard");
   };
   const { startTrackingPostView, stopTrackingPostView } = useNotificationTriggers();
 
   // Track post view
-  usePostView(id);
+  usePostView(post?.id);
 
   // Start tracking post view time for follow-up notifications
   useEffect(() => {
-    if (id && user) {
-      startTrackingPostView(id);
+    if (post?.id && user) {
+      startTrackingPostView(post.id);
       return () => {
-        stopTrackingPostView(id);
+        stopTrackingPostView(post.id);
       };
     }
-  }, [id, user, startTrackingPostView, stopTrackingPostView]);
+  }, [post?.id, user, startTrackingPostView, stopTrackingPostView]);
 
   useEffect(() => {
     const fetchPost = async () => {
-      if (!id) return;
+      if (!slug) return;
 
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch post
-        const { data: postData, error: fetchError } = await supabase
-          .from("posts")
-          .select("*")
-          .eq("id", id)
+        let postData: any = null;
+
+        // Check if slug is actually a UUID (backward compatibility for old ID URLs)
+        if (isUUID(slug)) {
+          // It's a UUID, fetch by ID and redirect to slug URL if slug exists
+          const { data, error } = await (supabase as any)
+            .from("posts")
+            .select("*")
+            .eq("id", slug)
+            .maybeSingle();
+          
+          if (error && error.code !== 'PGRST116') {
+            throw error;
+          }
+
+          postData = data;
+
+          // If post found and has a slug, redirect to slug URL
+          if (postData && postData.slug) {
+            navigate(`/post/${postData.slug}`, { replace: true });
+            return;
+          }
+        } else {
+          // It's a slug, fetch by slug (try exact match first, then case-insensitive)
+          console.log("🔍 Fetching post by slug:", slug);
+          
+          // Try exact match first
+          let { data, error } = await (supabase as any)
+            .from("posts")
+            .select("*")
+            .eq("slug", slug)
+            .maybeSingle();
+          
+          if (error && error.code !== 'PGRST116') {
+            console.error("❌ Error fetching by slug:", error);
+            throw error;
+          }
+
+          postData = data;
+          console.log("📄 Post data from exact slug match:", postData ? "Found" : "Not found");
+          
+          // If exact match failed, try case-insensitive
+          if (!postData) {
+            console.log("🔍 Trying case-insensitive slug match...");
+            const { data: caseInsensitiveData, error: caseInsensitiveError } = await (supabase as any)
+              .from("posts")
+              .select("*")
+              .ilike("slug", slug)
+              .maybeSingle();
+            
+            if (caseInsensitiveError && caseInsensitiveError.code !== 'PGRST116') {
+              console.error("❌ Error in case-insensitive search:", caseInsensitiveError);
+              throw caseInsensitiveError;
+            }
+
+            if (caseInsensitiveData) {
+              console.log("✅ Found post with case-insensitive match");
+              postData = caseInsensitiveData;
+              
+              // If slugs differ, redirect to correct slug
+              const dbSlugNormalized = (caseInsensitiveData.slug || "").trim().toLowerCase();
+              const urlSlugNormalized = slug.trim().toLowerCase();
+              
+              if (caseInsensitiveData.slug && dbSlugNormalized !== urlSlugNormalized) {
+                console.log("🔄 Redirecting to correct slug URL:", caseInsensitiveData.slug);
+                navigate(`/post/${caseInsensitiveData.slug}`, { replace: true });
+                return;
+              }
+            } else {
+              console.log("❌ No case-insensitive match found");
+            }
+          }
+
+          // If still no results, try partial slug match (slug might be truncated in DB)
+          if (!postData) {
+            console.log("🔍 Trying partial slug match (slug might be truncated in database)...");
+            
+            // Try matching first part of slug (database slug might be shorter)
+            const slugPrefix = slug.substring(0, Math.min(80, slug.length));
+            const { data: partialMatches, error: partialError } = await (supabase as any)
+              .from("posts")
+              .select("*")
+              .ilike("slug", `${slugPrefix}%`)
+              .limit(10);
+            
+            if (!partialError && partialMatches && partialMatches.length > 0) {
+              // Find the best match - one where the slug starts with our prefix
+              const bestMatch = partialMatches.find((p: any) => {
+                if (!p.slug) return false;
+                const dbSlug = p.slug.toLowerCase();
+                const searchSlug = slug.toLowerCase();
+                // Check if database slug starts with search slug prefix or vice versa
+                return dbSlug.startsWith(searchSlug.substring(0, 40)) || 
+                       searchSlug.startsWith(dbSlug.substring(0, 40));
+              });
+              
+              if (bestMatch) {
+                console.log("✅ Found post by partial slug match");
+                console.log("📝 Matched post title:", bestMatch.title);
+                console.log("🔗 Database slug:", bestMatch.slug);
+                console.log("🔗 URL slug:", slug);
+                
+                // Only redirect if slugs are actually different (normalize for comparison)
+                const dbSlugNormalized = (bestMatch.slug || "").trim().toLowerCase();
+                const urlSlugNormalized = slug.trim().toLowerCase();
+                
+                if (bestMatch.slug && dbSlugNormalized !== urlSlugNormalized) {
+                  console.log("🔄 Redirecting to correct slug URL:", bestMatch.slug);
+                  navigate(`/post/${bestMatch.slug}`, { replace: true });
+                  return;
+                } else {
+                  console.log("✅ Slugs match exactly, using found post");
+                  postData = bestMatch;
+                  // Don't return here - continue to fetch profile and tags
+                }
+              }
+            }
+          }
+          
+          // If still no results, try to find by matching slug against title
+          // This handles cases where slug in URL was generated from title but doesn't match database slug
+          if (!postData) {
+            console.log("🔍 Trying to find post by title match (slug might be NULL or different)...");
+            
+            // Fetch recent posts and match by slugifying their titles
+            const { data: recentPosts, error: recentError } = await (supabase as any)
+              .from("posts")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .limit(200); // Check last 200 posts to be safe
+            
+            if (!recentError && recentPosts) {
+              // Helper function to create slug from text
+              const createSlug = (text: string): string => {
+                return text
+                  .toLowerCase()
+                  .trim()
+                  .replace(/[^\w\s-]/g, '') // Remove special chars
+                  .replace(/[\s_-]+/g, '-') // Replace spaces/underscores with hyphens
+                  .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
+              };
+              
+              // Find post where slugified title matches the URL slug
+              const matchedPost = recentPosts.find((p: any) => {
+                if (!p.title) return false;
+                
+                // Create a slug from the title
+                const titleSlug = createSlug(p.title);
+                
+                // Also check if the database slug matches (even if it's different from title slug)
+                const dbSlug = (p.slug || "").toLowerCase();
+                const searchSlug = slug.toLowerCase();
+                
+                // Check multiple matching strategies:
+                // 1. Exact match with title slug
+                // 2. Prefix match (at least 40 chars)
+                // 3. Database slug match (if exists)
+                const minMatchLength = Math.min(slug.length, titleSlug.length, 40);
+                
+                if (minMatchLength >= 10) {
+                  // Check title slug match
+                  if (titleSlug === searchSlug || 
+                      (titleSlug.length >= minMatchLength && titleSlug.substring(0, minMatchLength) === searchSlug.substring(0, minMatchLength)) ||
+                      (searchSlug.length >= minMatchLength && searchSlug.substring(0, minMatchLength) === titleSlug.substring(0, minMatchLength))) {
+                    return true;
+                  }
+                }
+                
+                // Check database slug match (if it exists)
+                if (dbSlug && dbSlug.length >= 10) {
+                  if (dbSlug === searchSlug || 
+                      dbSlug.startsWith(searchSlug.substring(0, Math.min(40, searchSlug.length))) ||
+                      searchSlug.startsWith(dbSlug.substring(0, Math.min(40, dbSlug.length)))) {
+                    return true;
+                  }
+                }
+                
+                return false;
+              });
+              
+              if (matchedPost) {
+                console.log("✅ Found post by title match");
+                console.log("📝 Matched post title:", matchedPost.title);
+                console.log("🔗 Database slug:", matchedPost.slug || "NULL");
+                console.log("🔗 URL slug:", slug);
+                
+                postData = matchedPost;
+                
+                // Normalize slugs for comparison
+                const dbSlugNormalized = (matchedPost.slug || "").trim().toLowerCase();
+                const urlSlugNormalized = slug.trim().toLowerCase();
+                
+                // If the matched post has a slug, redirect to correct slug URL only if different
+                if (matchedPost.slug && dbSlugNormalized !== urlSlugNormalized) {
+                  console.log("🔄 Redirecting to correct slug URL:", matchedPost.slug);
+                  navigate(`/post/${matchedPost.slug}`, { replace: true });
+                  return;
+                } else if (!matchedPost.slug) {
+                  // Post has no slug, redirect to ID-based URL
+                  console.log("🔄 Post has no slug, redirecting to ID URL:", matchedPost.id);
+                  navigate(`/post/${matchedPost.id}`, { replace: true });
+                  return;
+                } else {
+                  console.log("✅ Slugs match, no redirect needed");
+                }
+              } else {
+                console.log("❌ No post found by title match");
+              }
+            }
+          }
+
+          // If still no results, try as ID fallback ONLY if slug could be a UUID
+          if (!postData && isUUID(slug)) {
+            console.log("🔍 Trying ID fallback (slug looks like UUID)...");
+            const { data: idData, error: idError } = await (supabase as any)
+              .from("posts")
+              .select("*")
+              .eq("id", slug)
+              .maybeSingle();
+            
+            if (idError && idError.code !== 'PGRST116') {
+              console.error("❌ Error in ID fallback:", idError);
+              // Don't throw UUID parsing errors - they're expected for non-UUID slugs
+              if (idError.code !== '22P02') {
+                throw idError;
+              }
+            }
+
+            if (idData) {
+              console.log("✅ Found post by ID fallback");
+              postData = idData;
+              // If post found by ID and has a slug, redirect to slug URL
+              if (postData.slug) {
+                console.log("🔄 Redirecting to slug URL:", postData.slug);
+                navigate(`/post/${postData.slug}`, { replace: true });
+                return;
+              }
+            } else {
+              console.log("❌ No post found by ID fallback");
+            }
+          }
+        }
+
+        // If no post found at all after all attempts
+        if (!postData) {
+          setError("Post not found");
+          setLoading(false);
+          return;
+        }
+
+        // Fetch profile (postData is guaranteed to exist here)
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("id, username, avatar_url")
+          .eq("id", postData.user_id)
           .single();
 
-        if (fetchError) throw fetchError;
+        // Fetch tags through post_tags junction table
+        const { data: postTagsData } = await (supabase as any)
+          .from('post_tags')
+          .select('tag_id, tags(name)')
+          .eq('post_id', postData.id);
 
-        if (postData) {
-          // Fetch profile
-          const { data: profileData } = await supabase
-            .from("profiles")
-            .select("id, username, avatar_url")
-            .eq("id", postData.user_id)
-            .single();
+        const tags = postTagsData?.map((pt: any) => pt.tags?.name).filter(Boolean) || [];
 
-          // Fetch tags through post_tags junction table
-          const { data: postTagsData } = await (supabase as any)
-            .from('post_tags')
-            .select('tag_id, tags(name)')
-            .eq('post_id', id);
-
-          const tags = postTagsData?.map((pt: any) => pt.tags?.name).filter(Boolean) || [];
-
-          setPost({
-            ...postData,
-            profiles: profileData,
-            tags: tags // Override with tags from post_tags
-          });
-        }
+        setPost({
+          ...postData,
+          profiles: profileData,
+          tags: tags // Override with tags from post_tags
+        });
       } catch (err: any) {
         console.error("Error fetching post:", err);
         setError(err.message || "Failed to fetch post");
@@ -108,11 +356,11 @@ export default function PostDetailPage() {
     };
 
     fetchPost();
-  }, [id]);
+  }, [slug, navigate]);
 
   // Scoped realtime subscriptions for post detail page
   useEffect(() => {
-    if (!id) return;
+    if (!post?.id) return;
     if (typeof window === "undefined") return; // SSR guard
 
     const refetchPost = async () => {
@@ -120,7 +368,7 @@ export default function PostDetailPage() {
         const { data: postData, error: fetchError } = await supabase
           .from("posts")
           .select("*")
-          .eq("id", id)
+          .eq("id", post.id)
           .single();
 
         if (!fetchError && postData) {
@@ -135,7 +383,7 @@ export default function PostDetailPage() {
           const { data: postTagsData } = await (supabase as any)
             .from('post_tags')
             .select('tag_id, tags(name)')
-            .eq('post_id', id);
+            .eq('post_id', post.id);
 
           const tags = postTagsData?.map((pt: any) => pt.tags?.name).filter(Boolean) || [];
 
@@ -150,11 +398,11 @@ export default function PostDetailPage() {
       }
     };
 
-    const rt = createRealtimeChannel(`realtime:post-detail:${id}`);
+    const rt = createRealtimeChannel(`realtime:post-detail:${post.id}`);
 
     // Listen to post updates
     rt.onPostgresChange(
-      { table: "posts", event: "UPDATE", filter: `id=eq.${id}` },
+      { table: "posts", event: "UPDATE", filter: `id=eq.${post.id}` },
       () => {
         refetchPost();
       }
@@ -162,7 +410,7 @@ export default function PostDetailPage() {
 
     // Listen to likes changes (for immediate UI updates)
     rt.onPostgresChange(
-      { table: "likes", event: "*", filter: `post_id=eq.${id}` },
+      { table: "likes", event: "*", filter: `post_id=eq.${post.id}` },
       () => {
         // Likes hook will handle the actual count update
         // This subscription ensures immediate visibility
@@ -171,7 +419,7 @@ export default function PostDetailPage() {
 
     // Listen to comments changes (for immediate UI updates)
     rt.onPostgresChange(
-      { table: "comments", event: "*", filter: `post_id=eq.${id}` },
+      { table: "comments", event: "*", filter: `post_id=eq.${post.id}` },
       () => {
         // Comments hook will handle the actual updates
         // This subscription ensures immediate visibility
@@ -185,7 +433,7 @@ export default function PostDetailPage() {
     return () => {
       rt.unsubscribe();
     };
-  }, [id]);
+  }, [post?.id]);
 
   if (loading) {
     return (
@@ -333,7 +581,7 @@ export default function PostDetailPage() {
       {/* Comments Section */}
       <Card className="p-6">
         <h2 className="text-xl font-bold mb-4">Comments</h2>
-        <CommentSection postId={id!} />
+        <CommentSection postId={post?.id || ""} postSlug={post?.slug} />
       </Card>
     </div>
   );

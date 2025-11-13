@@ -29,7 +29,7 @@ export const TrendingSidebar = () => {
         ) : (
           <div className="space-y-3">
             {posts.map((post, index) => (
-              <Link key={post.id} to={`/post/${post.id}`}>
+              <Link key={post.id} to={`/post/${post.slug || post.id}`}>
                 <Card className="p-3 hover:bg-secondary/50 transition-all cursor-pointer hover:shadow-md border-l-4 border-l-transparent hover:border-l-primary">
                   <div className="flex items-start gap-3">
                     {/* Trending Rank Badge */}

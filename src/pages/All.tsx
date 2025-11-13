@@ -480,6 +480,7 @@ export default function All() {
               <PostCard
                 key={post.id}
                 id={post.id}
+                slug={post.slug}
                 authorId={post.user_id}
                 author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, 'anonymous')}
                 timeAgo={new Date(post.created_at).toLocaleString()}

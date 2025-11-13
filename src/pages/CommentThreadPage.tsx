@@ -13,16 +13,22 @@ import { formatDistanceToNow } from "date-fns";
 import { removeTagsFromContent } from "@/lib/utils";
 import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } from "@/lib/profileDisplay";
 
+// Helper to check if string is UUID
+function isUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
 export default function CommentThreadPage() {
-  const { postId = "", commentId = "" } = useParams<{ postId: string; commentId: string }>();
+  const { postSlug = "", commentId = "" } = useParams<{ postSlug: string; commentId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { comments, loading: commentsLoading } = useComments(postId || null);
-  const [rootComment, setRootComment] = useState<any | null>(null);
-  const [parentComment, setParentComment] = useState<any | null>(null); // NEW: track parent
   const [post, setPost] = useState<any>(null);
   const [postLoading, setPostLoading] = useState(true);
-  const { hasLiked, likesCount, toggleLike } = useLikes(postId!, user?.id);
+  const { comments, loading: commentsLoading } = useComments(post?.id || null);
+  const [rootComment, setRootComment] = useState<any | null>(null);
+  const [parentComment, setParentComment] = useState<any | null>(null); // NEW: track parent
+  const { hasLiked, likesCount, toggleLike } = useLikes(post?.id || null, user?.id);
   const maxDepth = useMemo(() => {
     // Tailwind md breakpoint ~768px
     return window.matchMedia('(max-width: 767px)').matches ? 3 : 6;
@@ -57,15 +63,42 @@ export default function CommentThreadPage() {
   // Fetch post data
   useEffect(() => {
     const fetchPost = async () => {
-      if (!postId) return;
+      if (!postSlug) return;
 
       try {
         setPostLoading(true);
-        const { data: postData, error } = await supabase
-          .from("posts")
-          .select("*")
-          .eq("id", postId)
-          .single();
+        
+        let postData: any = null;
+        let error: any = null;
+
+        // Check if postSlug is actually a UUID (backward compatibility)
+        if (isUUID(postSlug)) {
+          // It's a UUID, fetch by ID and redirect to slug URL if slug exists
+          const { data, error: idError } = await (supabase as any)
+            .from("posts")
+            .select("*")
+            .eq("id", postSlug)
+            .single();
+          
+          postData = data;
+          error = idError;
+
+          // If post found and has a slug, redirect to slug URL
+          if (postData && postData.slug) {
+            navigate(`/post/${postData.slug}/comment/${commentId}`, { replace: true });
+            return;
+          }
+        } else {
+          // It's a slug, fetch by slug
+          const { data, error: slugError } = await (supabase as any)
+            .from("posts")
+            .select("*")
+            .eq("slug", postSlug)
+            .single();
+          
+          postData = data;
+          error = slugError;
+        }
 
         if (error) throw error;
 
@@ -79,7 +112,7 @@ export default function CommentThreadPage() {
           const { data: postTagsData } = await (supabase as any)
             .from('post_tags')
             .select('tag_id, tags(name)')
-            .eq('post_id', postId);
+            .eq('post_id', postData.id);
 
           const tags = postTagsData?.map((pt: any) => pt.tags?.name).filter(Boolean) || [];
 
@@ -97,7 +130,7 @@ export default function CommentThreadPage() {
     };
 
     fetchPost();
-  }, [postId]);
+  }, [postSlug, commentId, navigate]);
 
   // Find comment subtree and parent
   useEffect(() => {
@@ -113,12 +146,13 @@ export default function CommentThreadPage() {
 
   // NEW: Handle back navigation
   const handleBackToParent = () => {
+    const postUrl = post?.slug || post?.id || postSlug;
     if (parentComment) {
       // Navigate to parent comment thread
-      navigate(`/post/${postId}/comment/${parentComment.id}`);
+      navigate(`/post/${postUrl}/comment/${parentComment.id}`);
     } else {
       // Navigate to full post (this is a top-level comment)
-      navigate(`/post/${postId}`);
+      navigate(`/post/${postUrl}`);
     }
   };
 
@@ -157,7 +191,7 @@ export default function CommentThreadPage() {
           </Button>
           
           <Link 
-            to={`/post/${postId}`} 
+            to={`/post/${post?.slug || post?.id || postSlug}`} 
             className="text-sm text-muted-foreground hover:underline"
           >
             View full post
@@ -265,7 +299,7 @@ export default function CommentThreadPage() {
         <Card className="p-6">
           <div className="mb-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <Link to={`/post/${postId}`} className="hover:underline">
+              <Link to={`/post/${post?.slug || post?.id || postSlug}`} className="hover:underline">
                 Post
               </Link>
               {parentComment && (
@@ -290,7 +324,8 @@ export default function CommentThreadPage() {
           
           <CommentThread
             comment={rootComment}
-            postId={postId!}
+            postId={post?.id || ""}
+            postSlug={post?.slug}
             depth={0}
             focusedId={commentId}
             showContinueButton={true}

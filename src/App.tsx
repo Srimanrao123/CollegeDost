@@ -66,8 +66,8 @@ function AppContent() {
       {/* Main layout routes */}
       <Route element={<MainLayout />}>
         <Route path="/" element={<ProfileCompletionGuard><Home /></ProfileCompletionGuard>} />
-        <Route path="/post/:id" element={<PostDetailPage />} />
-        <Route path="/post/:postId/comment/:commentId" element={<CommentThreadPage />} />
+        <Route path="/post/:slug" element={<PostDetailPage />} />
+        <Route path="/post/:postSlug/comment/:commentId" element={<CommentThreadPage />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/profile/:userId" element={<Profile />} />
         <Route path="/notifications" element={user ? <Notifications /> : <Navigate to="/auth" replace />} />

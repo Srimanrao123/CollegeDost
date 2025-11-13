@@ -104,6 +104,7 @@ const Trending = () => {
                 <PostCard 
                   key={post.id}
                   id={post.id}
+                  slug={post.slug}
                   authorId={post.user_id}
               author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, "anonymous")}
               timeAgo={getTimeAgo(post.created_at)}

@@ -3,13 +3,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { createRealtimeChannel } from "@/lib/realtime";
 
-export function useLikes(postId: string, userId: string | undefined) {
+export function useLikes(postId: string | null, userId: string | undefined) {
   const [hasLiked, setHasLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const { toast } = useToast();
 
   const checkIfLiked = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || !postId) return;
     
     try {
       const { data, error } = await (supabase as any)
@@ -53,6 +53,8 @@ export function useLikes(postId: string, userId: string | undefined) {
   }, [postId]);
 
   const fetchLikesCount = useCallback(async () => {
+    if (!postId) return;
+    
     try {
       // Get count directly from likes table - this is more accurate
       const { count, error: countError } = await (supabase as any)
@@ -108,7 +110,7 @@ export function useLikes(postId: string, userId: string | undefined) {
 
   // Set up real-time subscriptions using the new realtime helper
   useEffect(() => {
-    if (!postId) return;
+    if (!postId || typeof postId !== 'string' || postId.trim() === "") return;
     if (typeof window === "undefined") return; // SSR guard
 
     let rt: ReturnType<typeof createRealtimeChannel> | null = null;
