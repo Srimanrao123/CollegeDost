@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { CreatePost } from "@/components/posts/CreatePost";
 import { PostCard } from "@/components/posts/PostCard";
 import { PostCardSkeleton } from "@/components/posts/PostCardSkeleton";
@@ -31,9 +31,31 @@ const Home = () => {
     }
     return undefined;
   }, [selectedTags, tagFilterMode]);
+
+  // Determine exam filter: only apply when no tags are selected and user has interested exams
+  const examFilter = useMemo(() => {
+    if (selectedTags.length > 0) {
+      // If tags are selected, don't filter by exams (tags take priority)
+      return undefined;
+    }
+    const hasUser = user || localStorage.getItem("phoneAuth");
+    if (hasUser && interestedExams.length > 0) {
+      return interestedExams;
+    }
+    return undefined;
+  }, [selectedTags, user, interestedExams]);
   
-  const fetchLimit = isAuthenticated ? undefined : 10;
-  const { posts, loading } = usePosts(tagFilter, fetchLimit, { paginate: false });
+  // Enable pagination for authenticated users, limit for non-authenticated
+  const paginate = !!isAuthenticated;
+  const limit = paginate ? undefined : 10;
+  const { posts, loading, fetchNextPage, hasNextPage, isFetchingNextPage } = usePosts(
+    tagFilter,
+    limit,
+    { paginate, pageSize: 10 },
+    examFilter
+  );
+
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // Notification triggers
   useNotificationTriggers();
@@ -102,48 +124,33 @@ const Home = () => {
     };
   }, [user]);
 
-  // Filter posts by interested exams (only if no tag filter active)
-  const filteredPosts = useMemo(() => {
-    let filtered: any[] = [];
-    let isFilterEmpty = false;
-    
-    // If tags are selected, posts are already filtered by usePosts hook
-    if (selectedTags.length > 0) {
-      filtered = posts;
-      // Mark if tag filter resulted in empty results
-      if (filtered.length === 0 && posts.length > 0) {
-        isFilterEmpty = true;
-      }
-    } else {
-      // Otherwise automatically filter by interested exams (no UI toggle)
-      // Check if user exists (Supabase auth or phone auth)
-      const hasUser = user || localStorage.getItem("phoneAuth");
-      if (!hasUser || interestedExams.length === 0) {
-        filtered = posts;
-      } else {
-        filtered = posts.filter(post => {
-          const postExamType = (post as any).exam_type;
-          if (!postExamType) return false;
-          return interestedExams.some(exam => exam.toLowerCase() === postExamType.toLowerCase());
-        });
-        // Mark if filter resulted in empty results
-        if (filtered.length === 0 && posts.length > 0) {
-          isFilterEmpty = true;
-        }
-      }
-    }
-    
-    // If filtered posts length is zero, show all posts instead
-    if (filtered.length === 0 && posts.length > 0) {
-      return { posts: posts, isShowingAllDueToEmptyFilter: true };
-    }
-    
-    return { posts: filtered, isShowingAllDueToEmptyFilter: isFilterEmpty };
-  }, [posts, selectedTags, user, interestedExams]);
+  // Infinite scroll setup
+  useEffect(() => {
+    if (!paginate) return;
 
-  const actualFilteredPosts = useMemo(() => filteredPosts.posts, [filteredPosts]);
-  console.log(actualFilteredPosts);
-  const isShowingAllDueToEmptyFilter = useMemo(() => filteredPosts.isShowingAllDueToEmptyFilter, [filteredPosts]);
+    const target = loadMoreRef.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      {
+        root: null,
+        rootMargin: "200px",
+        threshold: 0,
+      }
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, posts.length, paginate]);
 
   const sortPosts = (postsToSort: any[]) => {
     switch (sortBy) {
@@ -169,9 +176,9 @@ const Home = () => {
     }
   };
 
-  const sortedPosts = sortPosts(actualFilteredPosts);
+  const sortedPosts = sortPosts(posts);
   
-  // Posts are already limited in usePosts hook for non-authenticated users
+  // Posts are already filtered by usePosts hook (tags and exams) and limited for non-authenticated users
   const displayedPosts = sortedPosts;
 
   const getTimeAgo = (dateString: string) => {
@@ -204,13 +211,9 @@ const Home = () => {
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-semibold">
               {selectedTags.length > 0 
-                ? isShowingAllDueToEmptyFilter
-                  ? "All Posts (no matches for selected tags)"
-                  : `Posts tagged: ${selectedTags.join(', ')}`
-                : (user || localStorage.getItem("phoneAuth")) && interestedExams.length > 0
-                ? isShowingAllDueToEmptyFilter
-                  ? "All Posts (no matches for your exams)"
-                  : "Posts For You"
+                ? `Posts tagged: ${selectedTags.join(', ')}`
+                : examFilter && examFilter.length > 0
+                ? "Posts For You"
                 : "All Posts"}
             </h2>
           </div>
@@ -223,7 +226,7 @@ const Home = () => {
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <p className="text-sm font-medium mb-2">
-                  Showing posts matching {tagFilterMode === 'all' ? 'ALL' : 'ANY'} of these tags: ({actualFilteredPosts.length} posts)
+                  Showing posts matching {tagFilterMode === 'all' ? 'ALL' : 'ANY'} of these tags: ({posts.length} posts)
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {selectedTags.map((tag) => (
@@ -265,7 +268,7 @@ const Home = () => {
                 <p className="text-muted-foreground mb-4">
                   {selectedTags.length > 0
                     ? `No posts found with ${tagFilterMode === 'all' ? 'all' : 'any'} of the selected tags.`
-                    : user && interestedExams.length > 0
+                    : examFilter && examFilter.length > 0
                     ? "No posts found for your interested exams."
                     : "No posts yet. Be the first to create one!"}
                 </p>
@@ -305,9 +308,17 @@ const Home = () => {
                   avatarUrl={post.profiles?.avatar_url}
                 />
               ))}
+
+              {isFetchingNextPage && (
+                <div className="flex justify-center py-6">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              )}
             </div>
           )}
         </div>
+
+        <div ref={loadMoreRef} className="h-1" aria-hidden />
       </div>
     </>
   );

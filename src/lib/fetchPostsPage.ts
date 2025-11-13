@@ -6,6 +6,7 @@ type Args = {
   limit?: number;
   paginated?: boolean;
   tagFilter?: { tags: string[]; mode: "any" | "all" };
+  examFilter?: string[];
 };
 
 const clampLimit = (limit: number) => Math.max(1, Math.min(50, limit));
@@ -18,16 +19,74 @@ const dedupeById = (rows: Post[]) => {
   return Array.from(map.values());
 };
 
-export async function fetchPostsPage({ supabase, cursor, limit = 20, paginated = true, tagFilter }: Args) {
+export async function fetchPostsPage({ supabase, cursor, limit = 20, paginated = true, tagFilter, examFilter }: Args) {
   const clamped = clampLimit(limit);
   const decoded: Cursor | null = cursor ? decodeCursor(cursor) : null;
 
+  // Step 1: If we have exam filter, get all post IDs that match the exams
+  let examFilteredPostIds: string[] | null = null;
+  if (examFilter && examFilter.length > 0) {
+    const normalizedExams = examFilter
+      .map((exam) => exam.trim())
+      .filter((exam) => exam.length > 0);
+
+    if (normalizedExams.length > 0) {
+      
+      // Try exact match first (most common case)
+      let { data: examPosts, error: examError } = await supabase
+        .from("posts")
+        .select("id, exam_type")
+        .in("exam_type", normalizedExams);
+
+      // If exact match returns no results, try case-insensitive matching
+      if ((!examPosts || examPosts.length === 0) && !examError) {
+        // Try each exam individually with case-insensitive matching
+        const allPostIds = new Set<string>();
+        
+        for (const exam of normalizedExams) {
+          // Try ilike with exact match (no wildcards)
+          const { data: posts, error } = await supabase
+            .from("posts")
+            .select("id, exam_type")
+            .ilike("exam_type", exam);
+          
+          if (!error && posts) {
+            posts.forEach((p: any) => allPostIds.add(p.id));
+          }
+        }
+        
+        examPosts = Array.from(allPostIds).map(id => ({ id }));
+      }
+
+      if (examError) {
+        throw examError;
+      }
+      
+      examFilteredPostIds = (examPosts || []).map((p: any) => p.id);
+      
+      // If no posts match the exam filter, return empty result
+      if (!examFilteredPostIds || examFilteredPostIds.length === 0) {
+        console.warn("No posts found matching exam filter:", normalizedExams);
+        return { items: [], nextCursor: null };
+      }
+      
+    }
+  }
+
+  // Step 2: Build the main query
   let query = supabase
     .from("posts")
     .select("*")
     .order("created_at", { ascending: false })
     .order("id", { ascending: false });
 
+  // Apply exam filter by post IDs (if we filtered by exams)
+  if (examFilteredPostIds && examFilteredPostIds.length > 0) {
+    query = query.in("id", examFilteredPostIds);
+  }
+
+  // Apply cursor pagination filter AFTER exam filter
+  // Supabase will AND them: (id IN [exam_post_ids]) AND (cursor conditions)
   if (decoded) {
     query = query.or(orForNext(decoded));
   }

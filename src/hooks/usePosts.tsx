@@ -72,7 +72,8 @@ const enrichPosts = async (posts: any[]) => {
 export function usePosts(
   tagFilter?: { tags: string[]; mode: "any" | "all" },
   limit?: number,
-  options: UsePostsOptions = {}
+  options: UsePostsOptions = {},
+  examFilter?: string[]
 ) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -87,10 +88,11 @@ export function usePosts(
       "posts",
       tagFilter ? tagFilter.tags?.join(",") : "all",
       tagFilter?.mode || "any",
+      examFilter ? examFilter.join(",") : "all-exams",
       paginate ? "cursor" : "single",
       pageSize,
     ],
-    [tagFilter?.tags, tagFilter?.mode, paginate, pageSize]
+    [tagFilter?.tags, tagFilter?.mode, examFilter, paginate, pageSize]
   );
 
   const buildQueryArgs = (cursor: string | null) => ({
@@ -99,6 +101,7 @@ export function usePosts(
     limit: pageSize,
     paginated: paginate,
     tagFilter,
+    examFilter,
   });
 
   const infiniteQuery = useInfiniteQuery({
