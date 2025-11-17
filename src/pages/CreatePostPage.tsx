@@ -21,10 +21,7 @@ import { ImageUpload } from "@/components/posts/ImageUpload";
 import { X } from "lucide-react";
 import examsData from "@/utils/exams.json";
 import { Badge } from "@/components/ui/badge";
-import {
-  generateSlugWithGemini,
-  generateSimpleSlug,
-} from "@/lib/geminiSlug";
+import { generateSimpleSlug } from "@/lib/geminiSlug";
 
 // ----------------- helpers (outside component) -----------------
 
@@ -218,12 +215,12 @@ export default function CreatePostPage() {
       });
   };
 
-  // --------------- upload image to R2 ----------------
+  // --------------- upload image to R2 via Edge Function ----------------
 
   /**
-   * Upload image to R2 after post creation
+   * Upload image to R2 via Supabase Edge Function
    * Requires postId to use format: post-upload/<post_id>/<filename>.webp
-   * Images are automatically converted to WebP format
+   * Images are automatically converted to WebP format on the server
    */
   const uploadImageToR2 = async (postId: string): Promise<string | null> => {
     if (!imageFile || !user) {
@@ -231,24 +228,47 @@ export default function CreatePostPage() {
     }
 
     try {
-      console.log("🔄 Uploading image to R2...", {
+      console.log("🔄 Uploading image to R2 via Edge Function...", {
         fileName: imageFile.name,
         fileSize: imageFile.size,
         userId: user.id,
         postId,
       });
-      
-      const { uploadImageToR2: uploadR2 } = await import("@/lib/r2Upload");
-      
-      const result = await uploadR2({
-        file: imageFile,
-        userId: user.id,
-        postId: postId,
-        folder: 'post-upload',
+
+      // Get access token for Edge Function
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("No authentication token available");
+      }
+
+      // Create form data
+      const formData = new FormData();
+      formData.append("file", imageFile);
+      formData.append("postId", postId);
+
+      // Call Edge Function
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/upload-post-image`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
       
-      console.log("✅ Image uploaded to R2 successfully:", result.key);
-      return result.key;
+      if (!result.data?.key) {
+        throw new Error("No key returned from upload");
+      }
+
+      console.log("✅ Image uploaded to R2 successfully:", result.data.key);
+      return result.data.key;
     } catch (error: any) {
       console.error("❌ R2 upload failed:", {
         error: error?.message || error,
@@ -414,28 +434,47 @@ export default function CreatePostPage() {
         `${trimmedTitle} ${trimmedContent || ""}`
       );
 
-      // ------------- Gemini-based slug generation -------------
+      // ------------- Generate slug via Edge Function -------------
       let generatedSlug: string;
 
       try {
-        // For Gemini, use base64 image (R2 key doesn't work directly with Gemini)
-        const geminiSlug = await generateSlugWithGemini({
-          title: trimmedTitle,
-          content: trimmedContent,
-          examType: selectedExamType,
-          imageBase64: imageBase64,
-          imageMimeType: imageMimeType || undefined,
-          imageUrl: undefined, // No longer using image_url
+        // Get access token for Edge Function
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          throw new Error("No authentication token available");
+        }
+
+        // Call Edge Function for slug generation
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const slugResponse = await fetch(`${supabaseUrl}/functions/v1/generate-slug`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            title: trimmedTitle,
+            content: trimmedContent,
+            examType: selectedExamType,
+            imageBase64: imageBase64,
+            imageMimeType: imageMimeType || undefined,
+          }),
         });
-        console.log("Gemini slug response:", geminiSlug);
-        if (geminiSlug) {
-          generatedSlug = geminiSlug;
-          console.log("Generated slug from Gemini:", geminiSlug);
+
+        if (slugResponse.ok) {
+          const slugResult = await slugResponse.json();
+          if (slugResult.data?.slug) {
+            generatedSlug = slugResult.data.slug;
+            console.log("Generated slug from Edge Function:", generatedSlug);
+          } else {
+            generatedSlug = generateSimpleSlug(trimmedTitle);
+          }
         } else {
+          console.warn("Slug generation failed, using fallback");
           generatedSlug = generateSimpleSlug(trimmedTitle);
         }
       } catch (error) {
-        console.error("Error generating slug with Gemini, using fallback:", error);
+        console.error("Error generating slug with Edge Function, using fallback:", error);
         generatedSlug = generateSimpleSlug(trimmedTitle);
       }
 
