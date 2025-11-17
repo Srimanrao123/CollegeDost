@@ -1,21 +1,21 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { CreatePost } from "@/components/posts/CreatePost";
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { PostCard } from "@/components/posts/PostCard";
 import { PostCardSkeleton } from "@/components/posts/PostCardSkeleton";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { usePosts } from "@/hooks/usePosts";
-import { ProfileUpdateNotification } from "@/components/notifications/ProfileUpdateNotification";
-import { PushNotificationConsent } from "@/components/notifications/PushNotificationConsent";
+import { useHomePosts } from "@/hooks/useHomePosts";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { createRealtimeChannel } from "@/lib/realtime";
 import { useNotificationTriggers } from "@/hooks/useNotificationTriggers";
 import { ProfileService } from "@/services/profileService";
-import { deriveProfileHandle, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { buildImageUrl } from "@/lib/images";
+
+// PERFORMANCE: Lazy load CreatePost and notifications (not critical for first paint)
+const CreatePost = lazy(() => import("@/components/posts/CreatePost").then(m => ({ default: m.CreatePost })));
+const ProfileUpdateNotification = lazy(() => import("@/components/notifications/ProfileUpdateNotification").then(m => ({ default: m.ProfileUpdateNotification })));
+const PushNotificationConsent = lazy(() => import("@/components/notifications/PushNotificationConsent").then(m => ({ default: m.PushNotificationConsent })));
 
 const Home = () => {
   const [sortBy, setSortBy] = useState("best");
@@ -23,6 +23,8 @@ const Home = () => {
   const [interestedExams, setInterestedExams] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagFilterMode, setTagFilterMode] = useState<'any' | 'all'>('any');
+  const [loopMode, setLoopMode] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10); // Initial visible posts count
 
   // Use tag filter in usePosts hook - use useMemo to prevent unnecessary re-renders
   const tagFilter = useMemo(() => {
@@ -45,20 +47,66 @@ const Home = () => {
     return undefined;
   }, [selectedTags, user, interestedExams]);
   
-  // Enable pagination for authenticated users, limit for non-authenticated
-  const paginate = !!isAuthenticated;
-  const limit = paginate ? undefined : 10;
-  const { posts, loading, fetchNextPage, hasNextPage, isFetchingNextPage } = usePosts(
+  // TWO-STAGE FETCHING: 
+  // Stage 1: Fetch 2 posts immediately (eager image loading)
+  // Stage 2: Fetch remaining posts in background (lazy image loading)
+  const { posts, initialPosts, remainingPosts, loading, loadingRemaining } = useHomePosts(
     tagFilter,
-    limit,
-    { paginate, pageSize: 10 },
     examFilter
   );
 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  // Notification triggers
+  // PERFORMANCE: Initialize notification triggers (lightweight, doesn't block render)
   useNotificationTriggers();
+
+  // Preload first post image for faster LCP (Largest Contentful Paint)
+  // This significantly improves LCP, FCP, and SI metrics
+  useEffect(() => {
+    if (initialPosts && initialPosts.length > 0) {
+      const firstPost = initialPosts[0];
+      if (firstPost && firstPost.image_r2_key) {
+        const imageUrl = buildImageUrl({
+          r2Key: firstPost.image_r2_key,
+          isLcp: true, // First post is LCP
+        });
+        
+        if (imageUrl) {
+          // Extract domain for preconnect
+          try {
+            const url = new URL(imageUrl);
+            const domain = url.origin;
+            
+            // Add preconnect for CDN domain if not already present
+            const existingPreconnect = document.querySelector(`link[rel="preconnect"][href="${domain}"]`);
+            if (!existingPreconnect) {
+              const preconnectLink = document.createElement('link');
+              preconnectLink.rel = 'preconnect';
+              preconnectLink.href = domain;
+              preconnectLink.setAttribute('crossorigin', 'anonymous');
+              document.head.appendChild(preconnectLink);
+            }
+          } catch (e) {
+            // URL parsing failed, skip preconnect
+          }
+          
+          // Preload first post image (highest priority)
+          const existingLink = document.querySelector(`link[data-preload="first-post-image"]`);
+          if (existingLink) {
+            existingLink.remove();
+          }
+          
+          const link = document.createElement('link');
+          link.rel = 'preload';
+          link.as = 'image';
+          link.href = imageUrl;
+          link.setAttribute('fetchpriority', 'high');
+          link.setAttribute('data-preload', 'first-post-image');
+          document.head.appendChild(link);
+        }
+      }
+    }
+  }, [initialPosts]);
 
   // Listen for tag selection from sidebar
   useEffect(() => {
@@ -74,7 +122,8 @@ const Home = () => {
     return () => window.removeEventListener('tagsSelected', handleTagsSelected);
   }, []);
 
-  // Fetch user's interested exams (supports both Supabase auth and phone auth)
+  // PERFORMANCE: Defer fetching interested exams (non-critical for first paint)
+  // This reduces initial data fetching and improves FCP
   useEffect(() => {
     const fetchInterestedExams = async () => {
       const userId = await ProfileService.getUserId();
@@ -90,9 +139,12 @@ const Home = () => {
       }
     };
 
-    fetchInterestedExams();
+    // Fetch after initial render to avoid blocking first paint
+    const examTimer = setTimeout(() => {
+      fetchInterestedExams();
+    }, 200); // Small delay to prioritize post loading
 
-    // Real-time subscription for profile updates using realtime helper
+    // PERFORMANCE: Defer realtime subscription (non-critical for first paint)
     const setupRealtime = async () => {
       const userId = await ProfileService.getUserId();
       if (!userId || typeof window === "undefined") return; // SSR guard
@@ -118,69 +170,69 @@ const Home = () => {
       };
     };
 
-    const cleanup = setupRealtime();
+    // Setup realtime after a delay to avoid blocking initial render
+    const realtimeTimer = setTimeout(() => {
+      setupRealtime();
+    }, 500);
+
     return () => {
-      cleanup.then(cleanupFn => cleanupFn && cleanupFn());
+      clearTimeout(examTimer);
+      clearTimeout(realtimeTimer);
     };
   }, [user]);
 
-  // Infinite scroll setup
+  // Reset state when filters change
   useEffect(() => {
-    if (!paginate) return;
+    setLoopMode(false);
+    setVisibleCount(10);
+  }, [tagFilter, examFilter]);
 
-    const target = loadMoreRef.current;
-    if (!target) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries;
-        if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
-          fetchNextPage();
-        }
-      },
-      {
-        root: null,
-        rootMargin: "200px",
-        threshold: 0,
+  // PERFORMANCE: Memoize sort function to prevent recalculation on every render
+  const sortPosts = useMemo(() => {
+    return (postsToSort: any[]) => {
+      switch (sortBy) {
+        case "new":
+          return [...postsToSort].sort((a, b) => 
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+        case "top":
+          return [...postsToSort].sort((a, b) => (b.likes_count || 0) - (a.likes_count || 0));
+        case "trending":
+          return [...postsToSort].sort((a, b) => {
+            const scoreB = (b.likes_count || 0) + ((b.comments_count || 0) * 2);
+            const scoreA = (a.likes_count || 0) + ((a.comments_count || 0) * 2);
+            return scoreB - scoreA;
+          });
+        case "best":
+        default:
+          return [...postsToSort].sort((a, b) => {
+            const scoreB = (b.likes_count || 0) + ((b.comments_count || 0) * 2);
+            const scoreA = (a.likes_count || 0) + ((a.comments_count || 0) * 2);
+            return scoreB - scoreA;
+          });
       }
-    );
-
-    observer.observe(target);
-
-    return () => {
-      observer.disconnect();
     };
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, posts.length, paginate]);
+  }, [sortBy]);
 
-  const sortPosts = (postsToSort: any[]) => {
-    switch (sortBy) {
-      case "new":
-        return [...postsToSort].sort((a, b) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-      case "top":
-        return [...postsToSort].sort((a, b) => b.likes_count - a.likes_count);
-      case "trending":
-        return [...postsToSort].sort((a, b) => {
-          const scoreB = (b.likes_count || 0) + ((b.comments_count || 0) * 2);
-          const scoreA = (a.likes_count || 0) + ((a.comments_count || 0) * 2);
-          return scoreB - scoreA;
-        });
-      case "best":
-      default:
-        return [...postsToSort].sort((a, b) => {
-          const scoreB = (b.likes_count || 0) + ((b.comments_count || 0) * 2);
-          const scoreA = (a.likes_count || 0) + ((a.comments_count || 0) * 2);
-          return scoreB - scoreA;
-        });
-    }
-  };
-
-  const sortedPosts = sortPosts(posts);
+  // PERFORMANCE: Memoize sorted posts to prevent unnecessary re-sorting
+  const sortedPosts = useMemo(() => sortPosts(posts), [posts, sortPosts]);
   
-  // Posts are already filtered by usePosts hook (tags and exams) and limited for non-authenticated users
-  const displayedPosts = sortedPosts;
+  // PERFORMANCE: Limit initial DOM size to improve rendering performance
+  // Show all posts, but limit to reasonable number for initial render
+  // This prevents enormous DOM size that slows down rendering
+  const displayedPosts = useMemo(() => {
+    if (loopMode && sortedPosts.length > 8) {
+      // Create array of visible indices using modulo
+      return Array.from({ length: visibleCount }, (_, i) => 
+        sortedPosts[i % sortedPosts.length]
+      );
+    }
+    // Normal mode: show all sorted posts (already limited by two-stage fetching)
+    // Maximum ~22 posts (2 initial + 20 remaining) which is reasonable for DOM size
+    return sortedPosts;
+  }, [sortedPosts, loopMode, visibleCount]);
 
+  // PERFORMANCE: Simple time ago calculation (lightweight, no memoization needed)
   const getTimeAgo = (dateString: string) => {
     const now = new Date();
     const created = new Date(dateString);
@@ -192,20 +244,35 @@ const Home = () => {
     return `${Math.floor(seconds / 86400)}d ago`;
   };
 
-  if (loading) {
+  // PERFORMANCE: Show exactly 2 skeleton loaders matching the 2-post limit
+  // Fixed heights prevent CLS (Cumulative Layout Shift)
+  if (loading && posts.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="max-w-3xl mx-auto p-4 md:p-6">
+        <CreatePost />
+        <div className="flex items-center justify-between mb-4 mt-6">
+          <h2 className="text-xl font-semibold">Posts For You</h2>
+        </div>
+        <div className="space-y-4">
+          <PostCardSkeleton isFirstPost={true} />
+          <PostCardSkeleton />
+        </div>
       </div>
     );
   }
 
   return (
     <>
-      <ProfileUpdateNotification />
-      <PushNotificationConsent />
+      {/* PERFORMANCE: Lazy load notifications (non-critical for first paint) */}
+      <Suspense fallback={null}>
+        <ProfileUpdateNotification />
+        <PushNotificationConsent />
+      </Suspense>
       <div className="max-w-3xl mx-auto p-4 md:p-6">
-        <CreatePost />
+        {/* PERFORMANCE: Lazy load CreatePost (not needed for initial render) */}
+        <Suspense fallback={<div className="h-20 mb-4" />}>
+          <CreatePost />
+        </Suspense>
 
         <div className="flex items-center justify-between mb-4 mt-6">
           <div className="flex items-center gap-2">
@@ -238,13 +305,7 @@ const Home = () => {
 
 
         <div className="space-y-4">
-          {loading && posts.length === 0 ? (
-            <>
-              {[...Array(3)].map((_, i) => (
-                <PostCardSkeleton key={i} />
-              ))}
-            </>
-          ) : displayedPosts.length === 0 ? (
+          {displayedPosts.length === 0 ? (
             <div className="text-center py-12">
               <div className="mb-4">
                 <p className="text-2xl mb-2">🔍</p>
@@ -273,28 +334,41 @@ const Home = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {displayedPosts.map((post) => (
-                <PostCard 
-                  key={post.id}
-                  id={post.id}
-                  slug={post.slug}
-                  authorId={post.user_id}
-                  author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, 'anonymous')}
-                  timeAgo={getTimeAgo(post.created_at)}
-                  title={post.title || post.content?.substring(0, 100) || 'Untitled'}
-                  content={post.content || ''}
-                  image={post.image_url || ''}
-                  category={post.category}
-                  examType={post.exam_type || ''}
-                  comments={post.comments_count || 0}
-                  views={post.views_count || 0}
-                  tags={post.tags || []}
-                  avatarUrl={post.profiles?.avatar_url}
-                />
-              ))}
-
-              {isFetchingNextPage && (
-                <div className="flex justify-center py-6">
+              {/* TWO-STAGE RENDERING:
+                  - First 2 posts: Eager image loading (immediate render)
+                  - Remaining posts: Lazy image loading (loaded in background) */}
+              {displayedPosts.map((post, index) => {
+                const isFirstPost = index === 0;
+                // Check if post is in initialPosts array (first 2 posts) for eager loading
+                // This ensures eager loading works even after remaining posts are appended
+                const isEager = initialPosts.some(p => p.id === post.id);
+                
+                return (
+                  <PostCard 
+                    key={post.id}
+                    id={post.id}
+                    slug={post.slug}
+                    authorId={post.user_id}
+                    author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, 'anonymous')}
+                    timeAgo={getTimeAgo(post.created_at)}
+                    title={post.title || post.content?.substring(0, 100) || 'Untitled'}
+                    content={post.content || ''}
+                    imageR2Key={post.image_r2_key || null}
+                    category={post.category}
+                    examType={post.exam_type || ''}
+                    comments={post.comments_count || 0}
+                    views={post.views_count || 0}
+                    tags={post.tags || []}
+                    avatarUrl={getAvatarUrl(post.profiles, 40) || undefined}
+                    isFirstPost={isFirstPost}
+                    eager={isEager} // Force eager loading for first 2 posts (from initialPosts)
+                  />
+                );
+              })}
+              
+              {/* Show loading indicator while fetching remaining posts */}
+              {loadingRemaining && (
+                <div className="flex justify-center py-4">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
               )}

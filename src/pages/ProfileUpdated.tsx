@@ -20,6 +20,7 @@ import {
   deriveProfileDisplayName,
   deriveProfileHandle,
   deriveProfileInitial,
+  getAvatarUrl,
   type ProfileHandleSource,
 } from "@/lib/profileDisplay";
 import { useToast } from "@/hooks/use-toast";
@@ -29,6 +30,7 @@ interface Profile {
   username: string;
   full_name?: string;
   avatar_url?: string | null;
+  avatar_r2_key?: string | null;
   banner_url?: string | null;
   bio?: string | null;
   state?: string | null;
@@ -54,6 +56,8 @@ const ProfileUpdated = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const profileId = userId || user?.id;
   const isOwnProfile = !userId || userId === user?.id;
@@ -84,6 +88,120 @@ const ProfileUpdated = () => {
   const syncedProfileIdRef = useRef<string | null>(null);
   
   const loading = profileLoading || postsLoading;
+
+  const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user?.id) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file type',
+        description: 'Please select an image file',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate file size (max 3MB)
+    if (file.size > 3 * 1024 * 1024) {
+      toast({
+        title: 'File too large',
+        description: 'Please select an image smaller than 3MB',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+
+      if (!accessToken) {
+        throw new Error("Not authenticated");
+      }
+
+      // Prepare form data
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // Use the deployed function URL
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://bvikkwalgbcembzxnpau.supabase.co";
+      const edgeFunctionUrl = `${supabaseUrl}/functions/v1/upload-avatar`;
+
+      const res = await fetch(edgeFunctionUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        // Try to get detailed error message
+        let errorMessage = `Upload failed with status ${res.status}`;
+        let errorDetails: any = null;
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+          errorDetails = errorData.details || errorData;
+          console.error("Upload error details:", errorData);
+          console.error("Full error response:", {
+            status: res.status,
+            statusText: res.statusText,
+            error: errorData,
+          });
+        } catch (e) {
+          const errorText = await res.text().catch(() => "");
+          if (errorText) {
+            errorMessage = errorText;
+            console.error("Upload error response (text):", errorText);
+          }
+        }
+        
+        // Provide more helpful error message
+        if (errorDetails?.status === 403) {
+          errorMessage = "Access denied. Please check R2 credentials and permissions.";
+        } else if (errorDetails?.status === 404) {
+          errorMessage = "Bucket not found. Please verify the bucket name.";
+        } else if (errorDetails?.status === 400) {
+          errorMessage = "Invalid request. Please check the file format and size.";
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      const json = await res.json();
+      const r2Key = json.avatar_r2_key as string;
+
+      if (!r2Key) {
+        throw new Error("No avatar_r2_key returned from server");
+      }
+
+      // Trigger profile refresh
+      window.dispatchEvent(new CustomEvent('profileUpdated'));
+
+      toast({
+        title: 'Avatar uploaded',
+        description: 'Profile picture updated successfully',
+      });
+    } catch (error: any) {
+      console.error("Avatar upload error:", error);
+      toast({
+        title: 'Upload failed',
+        description: error.message || 'Failed to upload avatar. Please check console for details.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingAvatar(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [user?.id, toast]);
 
   const handleShareProfile = useCallback(async () => {
     if (typeof window === "undefined") return;
@@ -136,11 +254,11 @@ const ProfileUpdated = () => {
         const [followersCountResult, followingCountResult] = await Promise.all([
           supabase
             .from('follows')
-            .select('*', { count: 'exact', head: true })
+            .select('id', { count: 'exact', head: true })
             .eq('following_id', targetProfileId),
           supabase
             .from('follows')
-            .select('*', { count: 'exact', head: true })
+            .select('id', { count: 'exact', head: true })
             .eq('follower_id', targetProfileId),
         ]);
 
@@ -194,9 +312,10 @@ const ProfileUpdated = () => {
       try {
         setPostsLoading(true);
 
-        const postsResult = await supabase
+        // Optimized: Select only needed columns and use composite index on user_id + created_at
+        const postsResult = await (supabase as any)
           .from('posts')
-          .select('*')
+          .select('id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug')
           .eq('user_id', targetProfileId)
           .order('created_at', { ascending: false })
           .limit(50);
@@ -205,22 +324,22 @@ const ProfileUpdated = () => {
           console.error('Error fetching posts:', postsResult.error);
           setUserPosts([]);
         } else {
-          let postsWithProfiles = postsResult.data || [];
+          let postsWithProfiles = (postsResult.data || []) as any[];
 
           if (postsWithProfiles.length > 0) {
-            const userIds = [...new Set(postsWithProfiles.map((post) => post.user_id))];
+            const userIds = [...new Set(postsWithProfiles.map((post: any) => post.user_id))];
             const { data: profilesData, error: profilesError } = await supabase
               .from('profiles')
-              .select('id, username, avatar_url, full_name')
+              .select('id, username, avatar_r2_key, avatar_url, full_name')
               .in('id', userIds);
 
             if (profilesError) {
               console.error('Error fetching post authors:', profilesError);
             }
 
-            postsWithProfiles = postsWithProfiles.map((post) => ({
+            postsWithProfiles = postsWithProfiles.map((post: any) => ({
               ...post,
-              profiles: profilesData?.find((p) => p.id === post.user_id) || null,
+              profiles: (profilesData as any[])?.find((p: any) => p.id === post.user_id) || null,
             }));
           }
 
@@ -249,8 +368,8 @@ const ProfileUpdated = () => {
       try {
         setLikedPostsLoading(true);
         
-        // Get post IDs that user has liked (where comment_id is null for post likes)
-        const { data: likesData, error: likesError } = await supabase
+        // Optimized: Use index on user_id for filtering user's likes
+        const { data: likesData, error: likesError } = await (supabase as any)
           .from('likes')
           .select('post_id')
           .eq('user_id', user.id)
@@ -275,10 +394,10 @@ const ProfileUpdated = () => {
           return;
         }
 
-        // Fetch posts
-        const { data: postsData, error: postsError } = await supabase
+        // Optimized: Select only needed columns and use index on id
+        const { data: postsData, error: postsError } = await (supabase as any)
           .from('posts')
-          .select('*')
+          .select('id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug')
           .in('id', postIds)
           .order('created_at', { ascending: false });
 
@@ -290,20 +409,20 @@ const ProfileUpdated = () => {
 
         // Fetch author profiles, tags, and views
         if (postsData && postsData.length > 0) {
-          const userIds = [...new Set(postsData.map((post) => post.user_id))];
-          const postIds = postsData.map((post) => post.id);
+          const userIds = [...new Set((postsData as any[]).map((post: any) => post.user_id))];
+          const postIdsForFetch = (postsData as any[]).map((post: any) => post.id);
           
           // Fetch profiles
           const { data: profilesData } = await supabase
             .from('profiles')
-            .select('id, username, avatar_url, full_name')
+            .select('id, username, avatar_r2_key, avatar_url, full_name')
             .in('id', userIds);
 
           // Fetch tags
           const { data: postTagsData } = await (supabase as any)
             .from('post_tags')
             .select('post_id, tag_id, tags(name)')
-            .in('post_id', postIds);
+            .in('post_id', postIdsForFetch);
 
           const tagsMap: Record<string, string[]> = {};
           if (postTagsData) {
@@ -317,7 +436,7 @@ const ProfileUpdated = () => {
           const { data: viewsData } = await (supabase as any)
             .from('post_views')
             .select('post_id')
-            .in('post_id', postIds);
+            .in('post_id', postIdsForFetch);
 
           const viewsMap: Record<string, number> = {};
           if (viewsData) {
@@ -328,9 +447,9 @@ const ProfileUpdated = () => {
             });
           }
 
-          const postsWithData = postsData.map((post) => ({
+          const postsWithData = (postsData as any[]).map((post: any) => ({
             ...post,
-            profiles: profilesData?.find((p) => p.id === post.user_id) || null,
+            profiles: (profilesData as any[])?.find((p: any) => p.id === post.user_id) || null,
             tags: tagsMap[post.id] || [],
             views_count: viewsMap[post.id] || 0,
           }));
@@ -362,8 +481,8 @@ const ProfileUpdated = () => {
       try {
         setCommentedPostsLoading(true);
         
-        // Get unique post IDs that user has commented on
-        const { data: commentsData, error: commentsError } = await supabase
+        // Optimized: Use index on user_id for filtering user's comments
+        const { data: commentsData, error: commentsError } = await (supabase as any)
           .from('comments')
           .select('post_id')
           .eq('user_id', user.id)
@@ -387,10 +506,10 @@ const ProfileUpdated = () => {
           return;
         }
 
-        // Fetch posts
-        const { data: postsData, error: postsError } = await supabase
+        // Optimized: Select only needed columns and use index on id
+        const { data: postsData, error: postsError } = await (supabase as any)
           .from('posts')
-          .select('*')
+          .select('id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug')
           .in('id', postIds)
           .order('created_at', { ascending: false });
 
@@ -402,20 +521,20 @@ const ProfileUpdated = () => {
 
         // Fetch author profiles, tags, and views
         if (postsData && postsData.length > 0) {
-          const userIds = [...new Set(postsData.map((post) => post.user_id))];
-          const postIds = postsData.map((post) => post.id);
+          const userIds = [...new Set((postsData as any[]).map((post: any) => post.user_id))];
+          const postIdsForFetch = (postsData as any[]).map((post: any) => post.id);
           
           // Fetch profiles
           const { data: profilesData } = await supabase
             .from('profiles')
-            .select('id, username, avatar_url, full_name')
+            .select('id, username, avatar_r2_key, avatar_url, full_name')
             .in('id', userIds);
 
           // Fetch tags
           const { data: postTagsData } = await (supabase as any)
             .from('post_tags')
             .select('post_id, tag_id, tags(name)')
-            .in('post_id', postIds);
+            .in('post_id', postIdsForFetch);
 
           const tagsMap: Record<string, string[]> = {};
           if (postTagsData) {
@@ -429,7 +548,7 @@ const ProfileUpdated = () => {
           const { data: viewsData } = await (supabase as any)
             .from('post_views')
             .select('post_id')
-            .in('post_id', postIds);
+            .in('post_id', postIdsForFetch);
 
           const viewsMap: Record<string, number> = {};
           if (viewsData) {
@@ -440,9 +559,9 @@ const ProfileUpdated = () => {
             });
           }
 
-          const postsWithData = postsData.map((post) => ({
+          const postsWithData = (postsData as any[]).map((post: any) => ({
             ...post,
-            profiles: profilesData?.find((p) => p.id === post.user_id) || null,
+            profiles: (profilesData as any[])?.find((p: any) => p.id === post.user_id) || null,
             tags: tagsMap[post.id] || [],
             views_count: viewsMap[post.id] || 0,
           }));
@@ -489,17 +608,17 @@ const ProfileUpdated = () => {
             : null;
 
           if (!authorProfileData) {
-            const { data: profileData } = await supabase
+            const { data: profileData } = await (supabase as any)
               .from('profiles')
-              .select('id, username, avatar_url, full_name')
+              .select('id, username, avatar_r2_key, avatar_url, full_name')
               .eq('id', newPost.user_id)
               .maybeSingle();
             authorProfileData = profileData
               ? {
-                  id: profileData.id,
+                  id: (profileData as any).id,
                   username: deriveProfileHandle(profileData as ProfileHandleSource, "anonymous"),
-                  full_name: profileData.full_name,
-                  avatar_url: profileData.avatar_url,
+                  full_name: (profileData as any).full_name,
+                  avatar_url: (profileData as any).avatar_url,
                 }
               : null;
           }
@@ -618,23 +737,38 @@ const ProfileUpdated = () => {
             {/* Profile Picture with Negative Margin */}
             <div className="relative -mt-12 md:-mt-16 flex-shrink-0">
               <Avatar className="h-24 w-24 md:h-32 md:w-32 border-4 border-background shadow-lg">
-                <AvatarImage src={profile.avatar_url} />
+                <AvatarImage src={getAvatarUrl(profile, 128) || undefined} />
                 <AvatarFallback className="text-3xl md:text-4xl bg-primary/10 text-primary font-semibold">
                   {deriveProfileInitial(profile as ProfileHandleSource)}
                 </AvatarFallback>
               </Avatar>
               {isOwnProfile && (
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="absolute bottom-0 right-0 h-8 w-8 rounded-full border-2 border-background shadow-md"
-                  onClick={() => {
-                    setIsEditModalOpen(true);
-                  }}
-                  aria-label="Edit avatar"
-                >
-                  <ImageIcon className="h-4 w-4" />
-                </Button>
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    className="hidden"
+                    disabled={uploadingAvatar}
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="absolute bottom-0 right-0 rounded-full border-2 border-background shadow-md px-3"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingAvatar}
+                    aria-label={(profile as any)?.avatar_r2_key || profile?.avatar_url ? "Change avatar" : "Upload avatar"}
+                  >
+                    {uploadingAvatar ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <ImageIcon className="h-4 w-4 mr-1" />
+                      </>
+                    )}
+                  </Button>
+                </>
               )}
             </div>
 
@@ -844,13 +978,13 @@ const ProfileUpdated = () => {
                       content={post.content}
                       category={post.category}
                       examType={post.exam_type || ''}
-                      image={post.image_url}
+                      imageR2Key={post.image_r2_key || null}
                       likes={post.likes_count}
                       dislikes={0}
                       comments={post.comments_count}
                       views={post.views_count || 0}
                       tags={post.tags || []}
-                      avatarUrl={post.profiles?.avatar_url}
+                      avatarUrl={getAvatarUrl(post.profiles, 40) || undefined}
                     />
                   ))}
                 </div>
@@ -886,13 +1020,13 @@ const ProfileUpdated = () => {
                       content={post.content}
                       category={post.category}
                       examType={post.exam_type || ''}
-                      image={post.image_url}
+                      imageR2Key={post.image_r2_key || null}
                       likes={post.likes_count}
                       dislikes={0}
                       comments={post.comments_count}
                       views={post.views_count || 0}
                       tags={post.tags || []}
-                      avatarUrl={post.profiles?.avatar_url}
+                      avatarUrl={getAvatarUrl(post.profiles, 40) || undefined}
                     />
                   ))}
                 </div>
@@ -928,13 +1062,13 @@ const ProfileUpdated = () => {
                       content={post.content}
                       category={post.category}
                       examType={post.exam_type || ''}
-                      image={post.image_url}
+                      imageR2Key={post.image_r2_key || null}
                       likes={post.likes_count}
                       dislikes={0}
                       comments={post.comments_count}
                       views={post.views_count || 0}
                       tags={post.tags || []}
-                      avatarUrl={post.profiles?.avatar_url}
+                      avatarUrl={getAvatarUrl(post.profiles, 40) || undefined}
                     />
                   ))}
                 </div>

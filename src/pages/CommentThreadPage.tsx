@@ -11,7 +11,8 @@ import { useLikes } from "@/hooks/useLikes";
 import { useAuth } from "@/hooks/useAuth";
 import { formatDistanceToNow } from "date-fns";
 import { removeTagsFromContent } from "@/lib/utils";
-import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, deriveProfileInitial, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { buildImageUrl } from "@/lib/images";
 
 // Helper to check if string is UUID
 function isUUID(str: string): boolean {
@@ -105,7 +106,7 @@ export default function CommentThreadPage() {
         if (postData) {
           const { data: profileData } = await supabase
             .from("profiles")
-            .select("id, username, avatar_url")
+            .select("id, username, avatar_r2_key, avatar_url")
             .eq("id", postData.user_id)
             .single();
 
@@ -202,7 +203,7 @@ export default function CommentThreadPage() {
         <Card className="p-6">
           <div className="flex items-start gap-3 mb-4">
             <Avatar className="h-10 w-10">
-              <AvatarImage src={post.profiles?.avatar_url} />
+              <AvatarImage src={getAvatarUrl(post.profiles, 40) || undefined} />
               <AvatarFallback>
                 {deriveProfileInitial(post.profiles as ProfileHandleSource | null)}
               </AvatarFallback>
@@ -245,17 +246,31 @@ export default function CommentThreadPage() {
             </div>
           )}
 
-          {post.image_url && (
-            <div className="relative w-full flex justify-center bg-muted/30 rounded-lg p-4 mb-4">
-              <img
-                src={post.image_url}
-                alt="Post content"
-                className="max-w-full h-auto object-contain rounded-lg shadow-md"
-                style={{ maxHeight: "500px" }}
-                loading="eager"
-              />
-            </div>
-          )}
+          {(() => {
+            const imageUrl = buildImageUrl({
+              r2Key: post.image_r2_key || null,
+              isLcp: false, // Comment thread page doesn't need LCP optimization
+            });
+
+            if (!imageUrl) {
+              return null;
+            }
+
+            return (
+              <div className="post-image-container">
+                <img
+                  src={imageUrl}
+                  alt="Post content"
+                  className="post-image"
+                  loading="eager"
+                  decoding="async"
+                  width={800}
+                  height={450}
+                  style={{ aspectRatio: "16 / 9" }}
+                />
+              </div>
+            );
+          })()}
 
           {post.link_url && (
             <a

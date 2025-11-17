@@ -35,7 +35,7 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
   const [profileRecord, setProfileRecord] = useState<any>(null);
   const [handlePreview, setHandlePreview] = useState('');
   const [bio, setBio] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('');
+  const [avatarR2Key, setAvatarR2Key] = useState<string | null>(null);
   const [state, setState] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -61,8 +61,13 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
           setProfileRecord(profile);
           setHandlePreview(normalizeHandle(deriveProfileHandle(profile, 'user')));
           setBio(profile.bio || '');
-          setAvatarUrl(profile.avatar_url || '');
-          setAvatarPreview(profile.avatar_url || '');
+          setAvatarR2Key(profile.avatar_r2_key || null);
+          // For preview, use avatar_r2_key if available, fallback to avatar_url for old avatars
+          const { buildImageUrl } = await import("@/lib/images");
+          const previewUrl = profile.avatar_r2_key 
+            ? buildImageUrl({ r2Key: profile.avatar_r2_key, width: 200 }) || ''
+            : profile.avatar_url || '';
+          setAvatarPreview(previewUrl);
           setState(profile.state || '');
         }
       };
@@ -103,50 +108,45 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
       };
       reader.readAsDataURL(file);
 
-      // Delete old avatar if exists
-      if (avatarUrl && avatarUrl.includes('profile-image')) {
-        try {
-          const oldFileName = avatarUrl.split('/').pop()?.split('?')[0];
-          if (oldFileName) {
-            await supabase.storage
-              .from('profile-image')
-              .remove([oldFileName]);
-          }
-        } catch (error) {
-          // Ignore errors when deleting old image
-          console.log('Could not delete old image:', error);
-        }
+      // Upload avatar using Supabase Edge Function
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+
+      if (!accessToken) {
+        throw new Error("Not authenticated");
       }
 
-      // Upload to Supabase storage
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user?.id}-${Date.now()}.${fileExt}`;
-      const filePath = fileName;
+      const formData = new FormData();
+      formData.append("file", file);
 
-      const { error: uploadError } = await supabase.storage
-        .from('profile-image')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true, // Allow overwrite if file exists
-          contentType: file.type
-        });
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const edgeFunctionUrl = `${supabaseUrl}/functions/v1/upload-avatar`;
 
-      if (uploadError) throw uploadError;
+      const res = await fetch(edgeFunctionUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
 
-      // Get public URL - wait a moment for file to be indexed
-      await new Promise(resolve => setTimeout(resolve, 500));
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "Upload failed" }));
+        throw new Error(errorData.error || "Avatar upload failed");
+      }
+
+      const json = await res.json();
+      const r2Key = json.avatar_r2_key as string;
+
+      if (!r2Key) {
+        throw new Error("No avatar_r2_key returned from server");
+      }
+
+      // Build preview URL using buildImageUrl
+      const { buildImageUrl } = await import("@/lib/images");
+      const previewUrl = buildImageUrl({ r2Key, width: 200 }) || '';
       
-      const { data: urlData } = supabase.storage
-        .from('profile-image')
-        .getPublicUrl(filePath);
-
-      const publicUrl = urlData.publicUrl;
-      
-      // Add cache busting query parameter for preview only
-      const previewUrl = `${publicUrl}?t=${Date.now()}`;
-      
-      // Save URL without cache busting to database (we'll add it when displaying)
-      setAvatarUrl(publicUrl);
+      setAvatarR2Key(r2Key);
       setAvatarPreview(previewUrl);
       setAvatarKey(prev => prev + 1); // Force re-render of avatar image
 
@@ -184,7 +184,7 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
       const updateData: any = {};
       updateData.username = normalizedHandle;
       if (bio !== undefined) updateData.bio = bio;
-      if (avatarUrl !== undefined) updateData.avatar_url = avatarUrl;
+      // avatar_r2_key is already updated by the edge function, no need to update here
       if (state !== undefined) updateData.state = state;
       updateData.updated_at = new Date().toISOString();
 
@@ -252,7 +252,7 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
               <div className="relative">
                 <Avatar className="h-24 w-24 border-2 border-primary">
                   <AvatarImage 
-                    src={avatarPreview || avatarUrl || ''} 
+                    src={avatarPreview || ''} 
                     key={avatarKey}
                   />
                   <AvatarFallback className="text-2xl">
@@ -276,13 +276,13 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
                   <Upload className="h-4 w-4 mr-2" />
                   {uploading ? 'Uploading...' : 'Upload Photo'}
                 </Button>
-                {avatarUrl && (
+                {avatarR2Key && (
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setAvatarUrl('');
+                      setAvatarR2Key(null);
                       setAvatarPreview('');
                       if (fileInputRef.current) fileInputRef.current.value = '';
                     }}
@@ -300,19 +300,6 @@ export const EditProfileModal = ({ open, onOpenChange }: EditProfileModalProps) 
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <div>
-                <Label htmlFor="avatarUrl">Or enter image URL</Label>
-                <Input
-                  id="avatarUrl"
-                  value={avatarUrl}
-                  onChange={(e) => {
-                    setAvatarUrl(e.target.value);
-                    setAvatarPreview(e.target.value);
-                  }}
-                  placeholder="Enter image URL"
-                  className={inputStyles}
-                />
-              </div>
             </div>
             
             <div>

@@ -14,9 +14,10 @@ import { motion } from "framer-motion";
 import { usePostView } from "@/hooks/usePostView";
 import { createRealtimeChannel } from "@/lib/realtime";
 import { removeTagsFromContent } from "@/lib/utils";
-import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, deriveProfileInitial, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
 import { useNotificationTriggers } from "@/hooks/useNotificationTriggers";
 import { toast } from "sonner";
+import { buildImageUrl } from "@/lib/images";
 
 // Helper to check if string is UUID
 function isUUID(str: string): boolean {
@@ -82,9 +83,10 @@ export default function PostDetailPage() {
         // Check if slug is actually a UUID (backward compatibility for old ID URLs)
         if (isUUID(slug)) {
           // It's a UUID, fetch by ID and redirect to slug URL if slug exists
+          // Optimized: Select only needed columns
           const { data, error } = await (supabase as any)
             .from("posts")
-            .select("*")
+            .select("id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug, post_type, link_url, topic_id")
             .eq("id", slug)
             .maybeSingle();
           
@@ -103,10 +105,10 @@ export default function PostDetailPage() {
           // It's a slug, fetch by slug (try exact match first, then case-insensitive)
           console.log("🔍 Fetching post by slug:", slug);
           
-          // Try exact match first
+          // Optimized: Select only needed columns
           let { data, error } = await (supabase as any)
             .from("posts")
-            .select("*")
+            .select("id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug, post_type, link_url, topic_id")
             .eq("slug", slug)
             .maybeSingle();
           
@@ -123,7 +125,7 @@ export default function PostDetailPage() {
             console.log("🔍 Trying case-insensitive slug match...");
             const { data: caseInsensitiveData, error: caseInsensitiveError } = await (supabase as any)
               .from("posts")
-              .select("*")
+              .select("id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug, post_type, link_url, topic_id")
               .ilike("slug", slug)
               .maybeSingle();
             
@@ -158,7 +160,7 @@ export default function PostDetailPage() {
             const slugPrefix = slug.substring(0, Math.min(80, slug.length));
             const { data: partialMatches, error: partialError } = await (supabase as any)
               .from("posts")
-              .select("*")
+              .select("id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug, post_type, link_url, topic_id")
               .ilike("slug", `${slugPrefix}%`)
               .limit(10);
             
@@ -204,7 +206,7 @@ export default function PostDetailPage() {
             // Fetch recent posts and match by slugifying their titles
             const { data: recentPosts, error: recentError } = await (supabase as any)
               .from("posts")
-              .select("*")
+              .select("id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug, post_type, link_url, topic_id")
               .order("created_at", { ascending: false })
               .limit(200); // Check last 200 posts to be safe
             
@@ -293,7 +295,7 @@ export default function PostDetailPage() {
             console.log("🔍 Trying ID fallback (slug looks like UUID)...");
             const { data: idData, error: idError } = await (supabase as any)
               .from("posts")
-              .select("*")
+              .select("id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug, post_type, link_url, topic_id")
               .eq("id", slug)
               .maybeSingle();
             
@@ -330,7 +332,7 @@ export default function PostDetailPage() {
         // Fetch profile (postData is guaranteed to exist here)
         const { data: profileData } = await supabase
           .from("profiles")
-          .select("id, username, avatar_url")
+          .select("id, username, avatar_r2_key, avatar_url")
           .eq("id", postData.user_id)
           .single();
 
@@ -365,9 +367,9 @@ export default function PostDetailPage() {
 
     const refetchPost = async () => {
       try {
-        const { data: postData, error: fetchError } = await supabase
+        const { data: postData, error: fetchError } = await (supabase as any)
           .from("posts")
-          .select("*")
+          .select("id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug, post_type, link_url, topic_id")
           .eq("id", post.id)
           .single();
 
@@ -375,7 +377,7 @@ export default function PostDetailPage() {
           // Fetch profile
           const { data: profileData } = await supabase
             .from("profiles")
-            .select("id, username, avatar_url")
+            .select("id, username, avatar_r2_key, avatar_url")
             .eq("id", postData.user_id)
             .single();
 
@@ -388,7 +390,7 @@ export default function PostDetailPage() {
           const tags = postTagsData?.map((pt: any) => pt.tags?.name).filter(Boolean) || [];
 
           setPost({
-            ...postData,
+            ...(postData as any),
             profiles: profileData,
             tags: tags
           });
@@ -467,7 +469,7 @@ export default function PostDetailPage() {
         {/* Post Header */}
         <div className="flex items-start gap-3 mb-4">
           <Avatar className="h-10 w-10">
-            <AvatarImage src={post.profiles?.avatar_url} />
+            <AvatarImage src={getAvatarUrl(post.profiles, 40) || undefined} />
             <AvatarFallback>
               {deriveProfileInitial(post.profiles as ProfileHandleSource | null)}
             </AvatarFallback>
@@ -521,17 +523,31 @@ export default function PostDetailPage() {
         )}
 
         {/* Post Image */}
-        {post.image_url && (
-          <div className="relative w-full bg-muted">
-            <img
-              src={post.image_url}
-              alt={post.title || "Post image"}
-              className="max-w-full h-auto"
-              loading="eager"
-              decoding="async"
-            />
-          </div>
-        )}
+        {(() => {
+          const imageUrl = buildImageUrl({
+            r2Key: post.image_r2_key || null,
+            isLcp: false, // Detail page doesn't need LCP optimization
+          });
+
+          if (!imageUrl) {
+            return null;
+          }
+
+          return (
+            <div className="post-image-container">
+              <img
+                src={imageUrl}
+                alt={post.title || "Post image"}
+                className="post-image"
+                loading="eager"
+                decoding="async"
+                width={800}
+                height={450}
+                style={{ aspectRatio: "16 / 9" }}
+              />
+            </div>
+          );
+        })()}
 
         {/* Post Link */}
         {post.link_url && (

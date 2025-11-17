@@ -20,18 +20,21 @@ export const CreatePost = () => {
       if (!user) return;
 
       try {
-        type ProfileRow = { avatar_url?: string | null; full_name?: string | null };
+        type ProfileRow = { avatar_r2_key?: string | null; avatar_url?: string | null; full_name?: string | null };
         const { data } = await supabase
           .from('profiles')
-          .select('avatar_url, full_name, username')
+          .select('avatar_r2_key, avatar_url, full_name, username')
           .eq('id', user.id)
           .maybeSingle<ProfileRow>();
 
         const profileData = data as ProfileRow | null;
 
         if (profileData) {
-          if (profileData.avatar_url) {
-            setAvatarUrl(profileData.avatar_url);
+          // Use getAvatarUrl helper to get avatar URL (R2 or fallback)
+          const { getAvatarUrl } = await import("@/lib/profileDisplay");
+          const avatarUrlValue = getAvatarUrl(profileData, 40);
+          if (avatarUrlValue) {
+            setAvatarUrl(avatarUrlValue);
           }
           if (profileData.full_name) {
             setProfileName(profileData.full_name);

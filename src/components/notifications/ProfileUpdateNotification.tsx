@@ -30,7 +30,7 @@ export const ProfileUpdateNotification = () => {
     const checkProfile = async () => {
       const { data: profile } = await (supabase as any)
         .from('profiles')
-        .select('full_name, avatar_url, bio, state, entrance_exam, onboarding_completed, created_at')
+        .select('full_name, avatar_r2_key, avatar_url, bio, state, entrance_exam, onboarding_completed, created_at')
         .eq('id', user.id)
         .maybeSingle();
 

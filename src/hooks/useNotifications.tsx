@@ -22,9 +22,10 @@ export function useNotifications(userId: string | undefined) {
     if (!userId) return;
 
     try {
+      // Optimized: Select only needed columns and use composite index on user_id + created_at
       const { data, error } = await (supabase as any)
         .from('notifications')
-        .select('*')
+        .select('id, user_id, type, content, read, related_post_id, related_user_id, created_at')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 

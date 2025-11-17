@@ -20,17 +20,23 @@ export interface FollowProfile {
 }
 
 async function getFollowersCount(userId: string) {
+  // Optimized: Use index on following_id for count query
+  // Using 'planned' count is faster than 'exact' for large tables
+  // The profiles.followers_count column is kept in sync via triggers
   const { count } = await supabase
     .from("follows")
-    .select("*", { count: "exact", head: true })
+    .select("id", { count: "planned", head: true })
     .eq("following_id", userId);
   return count ?? 0;
 }
 
 async function getFollowingCount(userId: string) {
+  // Optimized: Use index on follower_id for count query
+  // Using 'planned' count is faster than 'exact' for large tables
+  // The profiles.following_count column is kept in sync via triggers
   const { count } = await supabase
     .from("follows")
-    .select("*", { count: "exact", head: true })
+    .select("id", { count: "planned", head: true })
     .eq("follower_id", userId);
   return count ?? 0;
 }

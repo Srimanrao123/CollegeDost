@@ -8,7 +8,8 @@ interface Profile {
   id: string;
   username: string;
   full_name?: string;
-  avatar_url?: string;
+  avatar_url?: string | null;
+  avatar_r2_key?: string | null;
   banner_url?: string | null;
   bio?: string;
   state?: string;

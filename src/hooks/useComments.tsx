@@ -151,9 +151,10 @@ export function useComments(postId: string | null) {
     try {
       setLoading(true);
       
+      // Optimized: Select only needed columns and use index on post_id
       const { data: commentsData, error: commentsError } = await supabase
         .from("comments")
-        .select("*")
+        .select("id, post_id, user_id, content, likes_count, created_at, updated_at, parent_id")
         .eq("post_id", postId)
         .order("created_at", { ascending: false });
 
@@ -164,7 +165,7 @@ export function useComments(postId: string | null) {
         
         const { data: profilesData } = await supabase
           .from("profiles")
-          .select("id, username, avatar_url")
+          .select("id, username, avatar_r2_key, avatar_url")
           .in("id", userIds);
 
         const commentsWithProfiles = commentsData.map(comment => ({
@@ -341,7 +342,7 @@ export function useComments(postId: string | null) {
           // Fetch profile for the new comment
           const { data: profileData } = await supabase
             .from("profiles")
-            .select("id, username, avatar_url")
+            .select("id, username, avatar_r2_key, avatar_url")
             .eq("id", newCommentData.user_id)
             .single();
 

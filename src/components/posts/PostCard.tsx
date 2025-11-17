@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { buildImageUrl } from "@/lib/images";
 
 interface PostCardProps {
   id: string;
@@ -37,12 +38,14 @@ interface PostCardProps {
   content?: string;
   category?: string;
   examType?: string;
-  image?: string | boolean;
+  imageR2Key?: string | null; // R2 key for image
   likes?: number;
   dislikes?: number;
   comments?: number;
   views?: number;
   tags?: string[];
+  isFirstPost?: boolean; // For LCP optimization
+  eager?: boolean; // Force eager image loading (for first 2 posts)
 }
 
 export const PostCard = ({
@@ -54,13 +57,15 @@ export const PostCard = ({
   timeAgo,
   title,
   content,
-  image,
+  imageR2Key,
   category,
   examType,
   comments = 0,
   views = 0,
   tags = [],
   avatarUrl,
+  isFirstPost = false,
+  eager = false, // Default to lazy loading unless explicitly set
 }: PostCardProps & { avatarUrl?: string }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -155,7 +160,14 @@ export const PostCard = ({
         <div className="flex items-start gap-3 mb-3">
           <Link to={`/profile/${authorId}`}>
             <Avatar className="h-10 w-10 cursor-pointer hover:ring-2 ring-primary transition-all">
-              <AvatarImage src={avatarUrl} alt={author} />
+              {/* PERFORMANCE: Avatar images are small, use lazy loading for non-critical avatars */}
+              <AvatarImage 
+                src={avatarUrl} 
+                alt={author}
+                loading={eager || isFirstPost ? "eager" : "lazy"}
+                width={40}
+                height={40}
+              />
               <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                 {author.charAt(0).toUpperCase()}
               </AvatarFallback>
@@ -234,17 +246,55 @@ export const PostCard = ({
               {removeTagsFromContent(content, tags)}
             </p>
           )}
-          {typeof image === "string" && image && (
-            <div className="relative w-full bg-muted">
-              <img
-                src={image}
-                alt="Post image"
-                className="max-w-full h-auto"
-                loading="eager"
-                decoding="async"
-              />
-            </div>
-          )}
+          {(() => {
+            // Build image URL from R2 key using CDN
+            const imageUrl = buildImageUrl({
+              r2Key: imageR2Key || null,
+              isLcp: isFirstPost,
+            });
+
+            if (!imageUrl) {
+              return null;
+            }
+            
+            return (
+              <div 
+                className="post-image-container"
+                style={{
+                  // PERFORMANCE: Fixed aspect ratio container prevents CLS
+                  // Using 16:9 as standard, but images will maintain their natural ratio with contain
+                  aspectRatio: '16 / 9',
+                  width: '100%',
+                  maxHeight: eager || isFirstPost ? '450px' : '400px',
+                  overflow: 'hidden',
+                  borderRadius: '0.5rem',
+                  backgroundColor: '#f3f4f6', // Placeholder color while loading
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <img
+                  src={imageUrl}
+                  alt={title}
+                  className="post-image"
+                  // PERFORMANCE: First post uses eager loading and high priority for LCP
+                  loading={eager || isFirstPost ? "eager" : "lazy"}
+                  fetchpriority={isFirstPost ? "high" : "auto"}
+                  decoding="async"
+                  width={800}
+                  height={450}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain', // Show full image without cropping
+                    display: 'block',
+                    aspectRatio: '16 / 9',
+                  }}
+                />
+              </div>
+            );
+          })()}
         </Link>
 
           <div className="flex flex-wrap items-center justify-between gap-2 md:gap-4 mt-4 pt-4 border-t">

@@ -4,27 +4,31 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { useAuth } from "@/hooks/useAuth"; // ADD THIS IMPORT
+import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
+import { Suspense, lazy } from "react";
 import Home from "./pages/Home";
-import PostDetailPage from "@/pages/PostDetailPage";
-import Profile from "./pages/ProfileUpdated";
-import Notifications from "./pages/NotificationsUpdated";
-import Trending from "./pages/Trending";
-import Explore from "./pages/ExploreUpdated";
-import Auth from "./pages/Auth";
-import Onboarding from "./pages/Onboarding";
-import UsernamePhoneVerification from "./pages/UsernamePhoneVerification";
-import CreateProfile from "./pages/CreateProfile";
-import VerifyPhone from "./pages/VerifyPhone";
-import NotFound from "./pages/NotFound";
-import CreatePostPage from "@/pages/CreatePostPage";
-import CommentThreadPage from "./pages/CommentThreadPage";
-import All from "@/pages/All";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { ProfileCompletionGuard } from "@/components/auth/ProfileCompletionGuard";
 import { OnboardingGuard } from "@/components/auth/OnboardingGuard";
 import { AnalyticsTracker } from "@/components/analytics/AnalyticsTracker";
+
+// PERFORMANCE: Code splitting - lazy load non-critical routes
+// This reduces initial bundle size and improves FCP/LCP
+const PostDetailPage = lazy(() => import("@/pages/PostDetailPage"));
+const Profile = lazy(() => import("./pages/ProfileUpdated"));
+const Notifications = lazy(() => import("./pages/NotificationsUpdated"));
+const Trending = lazy(() => import("./pages/Trending"));
+const Explore = lazy(() => import("./pages/ExploreUpdated"));
+const Auth = lazy(() => import("./pages/Auth"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const UsernamePhoneVerification = lazy(() => import("./pages/UsernamePhoneVerification"));
+const CreateProfile = lazy(() => import("./pages/CreateProfile"));
+const VerifyPhone = lazy(() => import("./pages/VerifyPhone"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const CreatePostPage = lazy(() => import("@/pages/CreatePostPage"));
+const CommentThreadPage = lazy(() => import("./pages/CommentThreadPage"));
+const All = lazy(() => import("@/pages/All"));
 
 // Optimized QueryClient configuration for maximum performance
 const queryClient = new QueryClient({
@@ -54,31 +58,173 @@ function AppContent() {
   const phoneAuthData = typeof window !== 'undefined' ? localStorage.getItem("phoneAuth") : null;
   const isAuthenticated = user || phoneAuthData;
 
+  // PERFORMANCE: Loading fallback for code-split routes
+  const LoadingFallback = () => (
+    <div className="flex items-center justify-center min-h-screen">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+
   return (
     <Routes>
-      {/* Auth flow routes (no layout) */}
-      <Route path="/auth" element={!isAuthenticated ? <Auth /> : <Navigate to="/" replace />} />
-      <Route path="/onboarding" element={isAuthenticated ? <OnboardingGuard><Onboarding /></OnboardingGuard> : <Navigate to="/auth" replace />} />
-      <Route path="/username-phone-verification" element={isAuthenticated ? <UsernamePhoneVerification /> : <Navigate to="/auth" replace />} />
-      <Route path="/create-profile" element={isAuthenticated ? <CreateProfile /> : <Navigate to="/auth" replace />} />
-      <Route path="/verify-phone" element={isAuthenticated ? <VerifyPhone /> : <Navigate to="/auth" replace />} />
+      {/* Auth flow routes (no layout) - Lazy loaded */}
+      <Route 
+        path="/auth" 
+        element={
+          !isAuthenticated ? (
+            <Suspense fallback={<LoadingFallback />}>
+              <Auth />
+            </Suspense>
+          ) : (
+            <Navigate to="/" replace />
+          )
+        } 
+      />
+      <Route 
+        path="/onboarding" 
+        element={
+          isAuthenticated ? (
+            <OnboardingGuard>
+              <Suspense fallback={<LoadingFallback />}>
+                <Onboarding />
+              </Suspense>
+            </OnboardingGuard>
+          ) : (
+            <Navigate to="/auth" replace />
+          )
+        } 
+      />
+      <Route 
+        path="/username-phone-verification" 
+        element={
+          isAuthenticated ? (
+            <Suspense fallback={<LoadingFallback />}>
+              <UsernamePhoneVerification />
+            </Suspense>
+          ) : (
+            <Navigate to="/auth" replace />
+          )
+        } 
+      />
+      <Route 
+        path="/create-profile" 
+        element={
+          isAuthenticated ? (
+            <Suspense fallback={<LoadingFallback />}>
+              <CreateProfile />
+            </Suspense>
+          ) : (
+            <Navigate to="/auth" replace />
+          )
+        } 
+      />
+      <Route 
+        path="/verify-phone" 
+        element={
+          isAuthenticated ? (
+            <Suspense fallback={<LoadingFallback />}>
+              <VerifyPhone />
+            </Suspense>
+          ) : (
+            <Navigate to="/auth" replace />
+          )
+        } 
+      />
 
-      {/* Main layout routes */}
+      {/* Main layout routes - Home is not lazy loaded (critical above-the-fold) */}
       <Route element={<MainLayout />}>
         <Route path="/" element={<ProfileCompletionGuard><Home /></ProfileCompletionGuard>} />
-        <Route path="/post/:slug" element={<PostDetailPage />} />
-        <Route path="/post/:postSlug/comment/:commentId" element={<CommentThreadPage />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/profile/:userId" element={<Profile />} />
-        <Route path="/notifications" element={user ? <Notifications /> : <Navigate to="/auth" replace />} />
-        <Route path="/trending" element={<Trending />} />
-        <Route path="/all" element={<All />} />
-        <Route path="/explore" element={<Explore />} />
-        <Route path="/create-post" element={user ? <CreatePostPage /> : <Navigate to="/auth" replace />} />
+        <Route 
+          path="/post/:slug" 
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <PostDetailPage />
+            </Suspense>
+          } 
+        />
+        <Route 
+          path="/post/:postSlug/comment/:commentId" 
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <CommentThreadPage />
+            </Suspense>
+          } 
+        />
+        <Route 
+          path="/profile" 
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <Profile />
+            </Suspense>
+          } 
+        />
+        <Route 
+          path="/profile/:userId" 
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <Profile />
+            </Suspense>
+          } 
+        />
+        <Route 
+          path="/notifications" 
+          element={
+            user ? (
+              <Suspense fallback={<LoadingFallback />}>
+                <Notifications />
+              </Suspense>
+            ) : (
+              <Navigate to="/auth" replace />
+            )
+          } 
+        />
+        <Route 
+          path="/trending" 
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <Trending />
+            </Suspense>
+          } 
+        />
+        <Route 
+          path="/all" 
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <All />
+            </Suspense>
+          } 
+        />
+        <Route 
+          path="/explore" 
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <Explore />
+            </Suspense>
+          } 
+        />
+        <Route 
+          path="/create-post" 
+          element={
+            user ? (
+              <Suspense fallback={<LoadingFallback />}>
+                <CreatePostPage />
+              </Suspense>
+            ) : (
+              <Navigate to="/auth" replace />
+            )
+          } 
+        />
       </Route>
 
       {/* Catch-all */}
-      <Route path="*" element={<NotFound />} />
+      <Route 
+        path="*" 
+        element={
+          <Suspense fallback={<LoadingFallback />}>
+            <NotFound />
+          </Suspense>
+        } 
+      />
     </Routes>
   );
 }
@@ -91,6 +237,7 @@ function App() {
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            {/* PERFORMANCE: Analytics runs after initial render to avoid blocking */}
             <AnalyticsTracker />
             <AppContent />
           </BrowserRouter>

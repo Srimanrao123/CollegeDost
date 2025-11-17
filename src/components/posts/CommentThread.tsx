@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, deriveProfileInitial, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
 
 // Responsive maximum depth (mobile: 3, desktop: 6)
 function useResponsiveMaxDepth() {
@@ -126,7 +126,7 @@ export function CommentThread({
     >
       <div className="flex items-start gap-3 mb-3">
         <Avatar className="h-8 w-8 flex-shrink-0">
-          <AvatarImage src={comment.profiles?.avatar_url} />
+          <AvatarImage src={getAvatarUrl(comment.profiles, 32) || undefined} />
           <AvatarFallback>
             {deriveProfileInitial(comment.profiles as ProfileHandleSource | null)}
           </AvatarFallback>

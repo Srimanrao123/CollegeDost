@@ -1,17 +1,21 @@
 import { supabase } from '@/integrations/supabase/client';
 
 async function getFollowersCount(userId: string) {
+  // Optimized: Select only 'id' instead of '*' and use 'planned' count for better performance
+  // The profiles.followers_count column is kept in sync via triggers
   const { count } = await supabase
     .from('follows')
-    .select('*', { count: 'exact', head: true })
+    .select('id', { count: 'planned', head: true })
     .eq('following_id', userId);
   return count ?? 0;
 }
 
 async function getFollowingCount(userId: string) {
+  // Optimized: Select only 'id' instead of '*' and use 'planned' count for better performance
+  // The profiles.following_count column is kept in sync via triggers
   const { count } = await supabase
     .from('follows')
-    .select('*', { count: 'exact', head: true })
+    .select('id', { count: 'planned', head: true })
     .eq('follower_id', userId);
   return count ?? 0;
 }

@@ -20,57 +20,81 @@ export function usePostView(postId: string | undefined) {
         console.log('👁️ Tracking view for post:', postId);
         console.log('👤 User: logged in (', user.id, ')');
 
-        // De-duplicate views within the last hour per user
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-        
-        // Check for existing view (only check by user_id, skip session_id for now)
+        // Check if view already exists (unique constraint is on post_id + user_id)
         const { data: existingView, error: checkError } = await (supabase as any)
           .from('post_views')
           .select('id')
           .eq('post_id', postId)
           .eq('user_id', user.id)
-          .gte('viewed_at', oneHourAgo)
-          .limit(1)
           .maybeSingle();
 
-        if (checkError) {
+        if (checkError && checkError.code !== 'PGRST116') {
+          // PGRST116 is "not found" which is fine, other errors are real issues
           console.error('❌ Error checking existing view:', checkError);
         }
 
+        const viewedAt = new Date().toISOString();
+
         if (existingView) {
-          // View already tracked
-          console.log('✅ View already tracked within last hour');
-          return;
-        }
+          // View already exists - update the viewed_at timestamp
+          console.log('📝 View exists, updating viewed_at timestamp');
+          const { data: updateData, error: updateError } = await (supabase as any)
+            .from('post_views')
+            .update({ viewed_at: viewedAt })
+            .eq('post_id', postId)
+            .eq('user_id', user.id)
+            .select();
 
-        // Prepare insert data - only include fields that definitely exist
-        const insertData: any = {
-          post_id: postId,
-          user_id: user.id,
-          viewed_at: new Date().toISOString()
-        };
-
-        // Only add session_id if we're sure the column exists (skip for now to avoid errors)
-        // The migration has session_id, but PostgREST cache may not be updated yet
-
-        console.log('📝 Inserting view:', insertData);
-
-        // Insert new view
-        const { data, error } = await (supabase as any)
-          .from('post_views')
-          .insert(insertData)
-          .select();
-
-        if (error) {
-          console.error('❌ Error tracking view:', error);
-          console.error('Error details:', {
-            message: error.message,
-            code: error.code,
-            details: error.details,
-            hint: error.hint
-          });
+          if (updateError) {
+            console.error('❌ Error updating view timestamp:', updateError);
+          } else {
+            console.log('✅ View timestamp updated successfully:', updateData);
+          }
         } else {
-          console.log('✅ View tracked successfully:', data);
+          // View doesn't exist - insert new view
+          const insertData: any = {
+            post_id: postId,
+            user_id: user.id,
+            viewed_at: viewedAt
+          };
+
+          console.log('📝 Inserting new view:', insertData);
+
+          const { data, error } = await (supabase as any)
+            .from('post_views')
+            .insert(insertData)
+            .select();
+
+          if (error) {
+            // Handle duplicate key error gracefully (409 Conflict)
+            // This can happen in race conditions where two requests try to insert simultaneously
+            if (error.code === '23505' || error.code === 'PGRST116') {
+              console.log('⚠️ Duplicate key detected (race condition), updating existing view');
+              // Try to update instead
+              const { data: updateData, error: updateError } = await (supabase as any)
+                .from('post_views')
+                .update({ viewed_at: viewedAt })
+                .eq('post_id', postId)
+                .eq('user_id', user.id)
+                .select();
+
+              if (updateError) {
+                console.error('❌ Error updating view after conflict:', updateError);
+              } else {
+                console.log('✅ View updated after conflict:', updateData);
+              }
+            } else {
+              console.error('❌ Error tracking view:', error);
+              console.error('Error details:', {
+                message: error.message,
+                code: error.code,
+                details: error.details,
+                hint: error.hint
+              });
+            }
+          } else {
+            console.log('✅ View tracked successfully:', data);
+          }
         }
       } catch (error) {
         console.error('❌ Error in trackView:', error);

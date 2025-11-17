@@ -8,15 +8,17 @@ export interface TrendingPost {
   user_id: string;
   title?: string;
   content: string;
-  image_url?: string;
+  image_r2_key?: string | null;
   category?: string; // ADD THIS
   exam_type?: string | null;
   likes_count: number;
   comments_count: number;
   trend_score: number;
   created_at: string;
+  slug?: string | null;
   profiles?: {
     username: string;
+    avatar_r2_key?: string | null;
     avatar_url?: string;
   };
   tags?: string[];
@@ -40,9 +42,14 @@ export function useTrendingPosts(limit: number = 10) {
       let candidatePosts: any[] = [];
 
       // Primary dataset: recent posts (last 14 days)
-      const { data: recentPosts, error: recentError } = await supabase
+      // Optimized query:
+      // 1. Only selects columns needed for trending calculation (reduces data transfer)
+      // 2. Uses index on created_at DESC for efficient filtering and sorting
+      // 3. Filters first (gte), then orders, then limits (optimal query pattern)
+      // 4. Limit of 500 provides enough candidates for trending score calculation
+      const { data: recentPosts, error: recentError } = await (supabase as any)
         .from('posts')
-        .select('*')
+        .select('id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug')
         .gte('created_at', recentThreshold)
         .order('created_at', { ascending: false })
         .limit(500);
@@ -61,16 +68,16 @@ export function useTrendingPosts(limit: number = 10) {
         const desiredAdditional = Math.max(limit * 3, 30);
 
         // Fallback 1: highly liked posts
-        const { data: likedPosts, error: likedError } = await supabase
+        const { data: likedPosts, error: likedError } = await (supabase as any)
           .from('posts')
-          .select('*')
+          .select('id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug')
           .gte('created_at', fallbackThreshold)
           .lt('created_at', recentThreshold)
           .order('likes_count', { ascending: false, nullsFirst: false })
           .limit(desiredAdditional);
 
         if (!likedError && likedPosts) {
-          likedPosts.forEach((post) => {
+          likedPosts.forEach((post: any) => {
             if (!existingIds.has(post.id)) {
               existingIds.add(post.id);
               candidatePosts.push(post);
@@ -83,14 +90,14 @@ export function useTrendingPosts(limit: number = 10) {
         }
 
         // Fallback 2: highly commented posts
-        const { data: commentedPosts, error: commentedError } = await supabase
+        const { data: commentedPosts, error: commentedError } = await (supabase as any)
           .from('posts')
-          .select('*')
+          .select('id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug')
           .order('comments_count', { ascending: false, nullsFirst: false })
           .limit(desiredAdditional);
 
         if (!commentedError && commentedPosts) {
-          commentedPosts.forEach((post) => {
+          commentedPosts.forEach((post: any) => {
             if (!existingIds.has(post.id)) {
               existingIds.add(post.id);
               candidatePosts.push(post);
@@ -103,14 +110,14 @@ export function useTrendingPosts(limit: number = 10) {
         }
 
         // Fallback 3: most recent posts overall
-        const { data: recentFallback, error: recentFallbackError } = await supabase
+        const { data: recentFallback, error: recentFallbackError } = await (supabase as any)
           .from('posts')
-          .select('*')
+          .select('id, user_id, title, content, image_r2_key, category, exam_type, likes_count, comments_count, trend_score, created_at, slug')
           .order('created_at', { ascending: false })
           .limit(desiredAdditional);
 
         if (!recentFallbackError && recentFallback) {
-          recentFallback.forEach((post) => {
+          recentFallback.forEach((post: any) => {
             if (!existingIds.has(post.id)) {
               existingIds.add(post.id);
               candidatePosts.push(post);
@@ -124,9 +131,9 @@ export function useTrendingPosts(limit: number = 10) {
       if (candidatePosts.length > 0) {
         // Fetch profiles for candidates
         const userIds = [...new Set(candidatePosts.map(p => p.user_id))];
-        const { data: profilesData } = await supabase
+        const { data: profilesData } = await (supabase as any)
           .from('profiles')
-          .select('id, username, avatar_url')
+          .select('id, username, avatar_r2_key, avatar_url')
           .in('id', userIds);
 
         // Fetch tags for all posts
@@ -188,14 +195,15 @@ export function useTrendingPosts(limit: number = 10) {
             user_id: postWithTrend.user_id,
             title: postWithTrend.title,
             content: postWithTrend.content,
-            image_url: postWithTrend.image_url,
+            image_r2_key: postWithTrend.image_r2_key || null,
             category: postWithTrend.category, // NOW INCLUDED
             exam_type: postWithTrend.exam_type ?? null,
             likes_count: postWithTrend.likes_count || 0,
             comments_count: postWithTrend.comments_count || 0,
             trend_score: score,
             created_at: postWithTrend.created_at,
-            profiles: profilesData?.find(p => p.id === postWithTrend.user_id) || undefined,
+            slug: postWithTrend.slug || null,
+            profiles: profilesData?.find((p: any) => p.id === postWithTrend.user_id) || undefined,
             tags: tagsMap[postWithTrend.id] || [],
             views_count: views,
           };

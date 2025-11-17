@@ -1,3 +1,5 @@
+import { buildImageUrl } from "@/lib/images";
+
 export type ProfileHandleSource = {
   id?: string | null;
   username?: string | null;
@@ -73,3 +75,18 @@ export function deriveProfileInitial(
   return fallback;
 }
 
+/**
+ * Get avatar URL from profile data
+ * Uses avatar_r2_key (R2) if available, falls back to avatar_url (Supabase Storage) for backward compatibility
+ */
+export function getAvatarUrl(profile: { avatar_r2_key?: string | null; avatar_url?: string | null } | null | undefined, width: number = 80): string | null {
+  if (!profile) return null;
+  
+  // Use avatar_r2_key if available (new R2 storage)
+  if (profile.avatar_r2_key) {
+    return buildImageUrl({ r2Key: profile.avatar_r2_key, width, isLcp: false }) || null;
+  }
+  
+  // Fallback to avatar_url for old avatars (Supabase Storage)
+  return profile.avatar_url || null;
+}

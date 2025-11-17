@@ -81,10 +81,10 @@ export function useCommentsList(postId: string) {
     try {
       setLoading(true);
       
-      // Fetch comments
+      // Optimized: Select only needed columns and use index on post_id
       const { data: commentsData, error: commentsError } = await supabase
         .from("comments")
-        .select("*")
+        .select("id, post_id, user_id, content, likes_count, created_at, updated_at, parent_id")
         .eq("post_id", postId)
         .order("created_at", { ascending: false });
 
@@ -96,7 +96,7 @@ export function useCommentsList(postId: string) {
         
         const { data: profilesData } = await supabase
           .from("profiles")
-          .select("id, username, avatar_url")
+          .select("id, username, avatar_r2_key, avatar_url")
           .in("id", userIds);
 
         // Merge comments with profiles

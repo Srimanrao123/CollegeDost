@@ -23,6 +23,7 @@ import {
   deriveProfileDisplayName,
   deriveProfileHandle,
   deriveProfileInitial,
+  getAvatarUrl,
   type ProfileHandleSource,
 } from "@/lib/profileDisplay";
 
@@ -156,7 +157,7 @@ export const CreatePostDialog = ({ open, onOpenChange }: CreatePostDialogProps) 
           user_id: user.id,
           content: postContent,
           category: category,
-          image_url: images.length > 0 ? images[0] : null,
+          image_r2_key: null, // CreatePostDialog doesn't support image uploads - use CreatePostPage instead
         });
 
       if (error) throw error;
@@ -195,13 +196,16 @@ export const CreatePostDialog = ({ open, onOpenChange }: CreatePostDialogProps) 
         <div className="p-4 space-y-4">
           {/* User Info */}
           <div className="flex items-center gap-3">
-            {profile?.avatar_url ? (
-              <img src={profile.avatar_url} alt="Profile" className="h-10 w-10 rounded-full object-cover" />
-            ) : (
+            {(() => {
+              const avatarUrl = getAvatarUrl(profile, 40);
+              return avatarUrl ? (
+                <img src={avatarUrl} alt="Profile" className="h-10 w-10 rounded-full object-cover" />
+              ) : (
               <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center border-2 border-primary/10">
                 <span className="text-sm font-bold text-primary">{profileInitial}</span>
               </div>
-            )}
+            );
+            })()}
             <div>
               <p className="font-semibold text-sm">{profileDisplayName}</p>
               <Select value={category} onValueChange={setCategory}>

@@ -46,7 +46,7 @@ export function CommentSection({ postId, postSlug }: CommentSectionProps) {
       // Fetch user profile for optimistic UI
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("id, username, avatar_url")
+        .select("id, username, avatar_r2_key, avatar_url")
         .eq("id", user.id)
         .single();
 

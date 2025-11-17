@@ -15,7 +15,7 @@ import examsData from "@/utils/exams.json";
 import { usePosts } from "@/hooks/usePosts";
 import { useNotificationTriggers } from "@/hooks/useNotificationTriggers";
 import { useAuth } from "@/hooks/useAuth";
-import { deriveProfileHandle, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
 
 export default function All() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -454,13 +454,13 @@ export default function All() {
                         timeAgo={new Date(post.created_at).toLocaleString()}
                         title={post.title || post.content?.substring(0, 100) || 'Untitled'}
                         content={post.content || ''}
-                        image={post.image_url || ''}
+                        imageR2Key={post.image_r2_key || null}
                         category={post.category}
                         examType={post.exam_type || ''}
                         comments={post.comments_count || 0}
                         views={post.views_count || 0}
                         tags={post.tags || []}
-                        avatarUrl={post.profiles?.avatar_url}
+                        avatarUrl={getAvatarUrl(post.profiles, 40) || undefined}
                       />
                     ))}
                   </div>
@@ -476,7 +476,7 @@ export default function All() {
           </>
         ) : (
           <div className="space-y-4">
-            {displayedPosts.map((post: any) => (
+            {displayedPosts.map((post: any, index: number) => (
               <PostCard
                 key={post.id}
                 id={post.id}
@@ -486,13 +486,14 @@ export default function All() {
                 timeAgo={new Date(post.created_at).toLocaleString()}
                 title={post.title || post.content?.substring(0, 100) || 'Untitled'}
                 content={post.content || ''}
-                image={post.image_url || ''}
+                imageR2Key={post.image_r2_key || null}
                 category={post.category}
                 examType={post.exam_type || ''}
                 comments={post.comments_count || 0}
                 views={post.views_count || 0}
                 tags={post.tags || []}
-                avatarUrl={post.profiles?.avatar_url}
+                avatarUrl={getAvatarUrl(post.profiles, 40) || undefined}
+                isFirstPost={index === 0} // Optimize first post for LCP
               />
             ))}
 

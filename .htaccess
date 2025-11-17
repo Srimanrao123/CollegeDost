@@ -1,0 +1,23 @@
+# PERFORMANCE: Cache headers for production build assets
+# This file should be placed in the dist/ folder after build
+# Or configured in your hosting provider (Vercel, Netlify, etc.)
+
+# Cache static assets with hashed filenames (immutable)
+<FilesMatch "\.(js|css|woff2?|eot|ttf|otf|svg|png|jpg|jpeg|gif|webp|ico)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </IfModule>
+</FilesMatch>
+
+# Cache HTML files for shorter duration (they may change)
+<FilesMatch "\.(html)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=3600, must-revalidate"
+  </IfModule>
+</FilesMatch>
+
+# Enable compression
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
+

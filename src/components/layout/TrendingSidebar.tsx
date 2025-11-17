@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { useTrendingPosts } from "@/hooks/useTrendingPosts";
 import { formatDistanceToNow } from "date-fns";
 import { cn, removeTagsFromContent } from "@/lib/utils";
-import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, deriveProfileInitial, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
 
 export const TrendingSidebar = () => {
   const { posts, loading } = useTrendingPosts(8); // Show top 8 trending posts
@@ -47,7 +47,7 @@ export const TrendingSidebar = () => {
                       {/* Author Info */}
                       <div className="flex items-center gap-2 mb-2">
                         <Avatar className="h-6 w-6">
-                          <AvatarImage src={post.profiles?.avatar_url} />
+                          <AvatarImage src={getAvatarUrl(post.profiles, 24) || undefined} />
                           <AvatarFallback className="text-xs">
                             {deriveProfileInitial(post.profiles as ProfileHandleSource | null)}
                           </AvatarFallback>

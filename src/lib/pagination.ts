@@ -3,7 +3,7 @@ export type Post = {
   title: string | null;
   content?: string | null;
   body?: string | null;
-  image_url?: string | null;
+  image_r2_key?: string | null;
   created_at: string;
 };
 

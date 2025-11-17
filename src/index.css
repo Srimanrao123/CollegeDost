@@ -2,6 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* PERFORMANCE: Post image container with fixed aspect ratio to prevent CLS */
+.post-image-container {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-height: 450px;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background-color: #f3f4f6; /* Placeholder color while loading */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.post-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* Preserves full image without cropping/stretching */
+  display: block;
+}
+
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
 */
@@ -121,4 +141,55 @@ All colors MUST be HSL.
   .gradient-accent {
     background: var(--gradient-accent);
   }
+}
+
+@layer components {
+  /* Post Image Container and Image Styles
+   * Prevents upscaling, preserves aspect ratio, responsive sizing
+   */
+  .post-image-container {
+    @apply relative w-full bg-muted rounded-lg overflow-hidden;
+    /* Container max-width matches card content area */
+    max-width: 100%;
+    /* Center the image within container */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Prevent container from forcing a specific height */
+    min-height: 0;
+  }
+
+  .post-image {
+    /* Never upscale: max-width ensures image never exceeds container */
+    max-width: 100%;
+    /* Auto height preserves natural aspect ratio */
+    height: auto;
+    /* Contain ensures full image is visible, no cropping */
+    object-fit: contain;
+    /* Block display for proper centering */
+    display: block;
+    /* Center horizontally */
+    margin: 0 auto;
+    /* Responsive: scales down on smaller screens */
+    width: auto;
+    /* Prevent stretching */
+    object-position: center;
+  }
+
+  /* Responsive behavior: ensure images don't overflow on mobile */
+  @media (max-width: 640px) {
+    .post-image-container {
+      /* On mobile, ensure container respects viewport */
+      max-width: 100vw;
+      padding: 0;
+    }
+
+    .post-image {
+      /* On mobile, images scale down naturally */
+      max-width: 100%;
+    }
+  }
+
+  /* Desktop: images fit comfortably in card, not edge-to-edge */
+  /* Note: No additional styles needed - default container styles work well on desktop */
 }

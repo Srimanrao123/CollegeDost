@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FollowProfile } from "@/hooks/useFollows";
 import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
-import { deriveProfileDisplayName, deriveProfileInitial } from "@/lib/profileDisplay";
+import { deriveProfileDisplayName, deriveProfileInitial, getAvatarUrl } from "@/lib/profileDisplay";
 
 interface FollowersModalProps {
   isOpen: boolean;
@@ -42,7 +42,7 @@ export function FollowersModal({ isOpen, onClose, followers, title }: FollowersM
               >
                 <div className="flex items-center gap-3">
                   <Avatar>
-                    <AvatarImage src={profile.avatar_url} />
+                    <AvatarImage src={getAvatarUrl(profile, 40) || undefined} />
                     <AvatarFallback>
                     {deriveProfileInitial(profile)}
                     </AvatarFallback>

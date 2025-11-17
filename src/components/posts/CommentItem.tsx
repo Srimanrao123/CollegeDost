@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { deriveProfileHandle, deriveProfileInitial, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, deriveProfileInitial, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
 
 interface CommentItemProps {
   comment: Comment;
@@ -70,7 +70,7 @@ export function CommentItem({ comment, level = 0, onReply, onEdit, onDelete }: C
       <div className="py-3">
         <div className="flex items-start gap-3">
           <Avatar className="h-8 w-8 flex-shrink-0">
-            <AvatarImage src={comment.profiles?.avatar_url} />
+            <AvatarImage src={getAvatarUrl(comment.profiles, 32) || undefined} />
             <AvatarFallback>
               {deriveProfileInitial(comment.profiles as ProfileHandleSource | null)}
             </AvatarFallback>

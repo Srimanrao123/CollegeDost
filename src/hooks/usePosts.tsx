@@ -18,7 +18,7 @@ const enrichPosts = async (posts: any[]) => {
   const userIds = [...new Set(posts.map((p) => p.user_id))];
   const { data: profilesData } = await supabase
     .from("profiles")
-    .select("id, username, avatar_url")
+    .select("id, username, avatar_r2_key, avatar_url")
     .in("id", userIds);
 
   const postIds = posts.map((p) => p.id);

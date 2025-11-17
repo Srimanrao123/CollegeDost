@@ -31,10 +31,11 @@ export function useLikes(postId: string | null, userId: string | undefined) {
   // Note: This might fail due to RLS if user doesn't own the post, but that's OK - triggers will handle it
   const updatePostLikesCountManually = useCallback(async (delta: number) => {
     try {
-      // Calculate new count from actual likes table count
+      // Optimized: Use partial index on post_id + comment_id IS NULL for count query
+      // Using 'planned' count is faster than 'exact' for large tables
       const { count } = await (supabase as any)
         .from('likes')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'planned', head: true })
         .eq('post_id', postId)
         .is('comment_id', null);
 
@@ -56,10 +57,12 @@ export function useLikes(postId: string | null, userId: string | undefined) {
     if (!postId) return;
     
     try {
-      // Get count directly from likes table - this is more accurate
+      // Optimized: Use partial index on post_id + comment_id IS NULL for count query
+      // Using 'planned' count is faster than 'exact' for large tables
+      // The posts.likes_count column is kept in sync via triggers, so we can use planned count
       const { count, error: countError } = await (supabase as any)
         .from('likes')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'planned', head: true })
         .eq('post_id', postId)
         .is('comment_id', null);
 

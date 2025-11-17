@@ -9,13 +9,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import logo from "@/assets/logo.png";
 import { useState } from "react";
 import { CreatePostDialog } from "@/components/posts/CreatePostDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect } from "react";
-import { deriveProfileInitial } from "@/lib/profileDisplay";
+import { deriveProfileInitial, getAvatarUrl } from "@/lib/profileDisplay";
 
 export const Header = () => {
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
@@ -124,7 +123,7 @@ export const Header = () => {
         <div className="container flex h-16 items-center justify-between">
           {/* Left: Logo */}
           <Link to="/" className="flex items-center hover:opacity-80 transition-opacity">
-            <img src={logo} alt="College Dost" className="h-10 w-10 md:h-12 md:w-14" />
+            <img src={'/logo.png'} alt="College Dost" className="h-10 w-10 md:h-12 md:w-14" />
           </Link>
 
           {/* Center: Search */}
@@ -176,13 +175,16 @@ export const Header = () => {
                       size="icon" 
                       className="hover:bg-secondary rounded-full" 
                     >
-                      {profile?.avatar_url ? (
-                        <img src={profile.avatar_url} alt="Profile" className="h-8 w-8 rounded-full object-cover" />
-                      ) : (
+                      {(() => {
+                        const avatarUrl = getAvatarUrl(profile, 32);
+                        return avatarUrl ? (
+                          <img src={avatarUrl} alt="Profile" className="h-8 w-8 rounded-full object-cover" />
+                        ) : (
                         <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
                           {deriveProfileInitial(profile)}
                         </div>
-                      )}
+                      );
+                      })()}
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 bg-popover z-50">

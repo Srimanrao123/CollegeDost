@@ -6,14 +6,14 @@ import { useTrendingPosts } from "@/hooks/useTrendingPosts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
 import { formatDistanceToNow } from "date-fns";
-import { deriveProfileHandle, type ProfileHandleSource } from "@/lib/profileDisplay";
+import { deriveProfileHandle, getAvatarUrl, type ProfileHandleSource } from "@/lib/profileDisplay";
 
 export interface TrendingPost {
   id: string;
   user_id: string;
   title: string | null;
   content: string | null;
-  image_url: string | null;
+  image_r2_key: string | null;
   category: string | null;
   exam_type?: string | null;
   created_at: string;
@@ -22,10 +22,12 @@ export interface TrendingPost {
   likes_count?: number;
   trend_score?: number;
   tags: string[];
+  slug?: string | null;
   profiles?: {
     username?: string | null;
     full_name?: string | null;
-    avatar_url: string | null;
+    avatar_r2_key?: string | null;
+    avatar_url?: string | null;
   };
 }
 
@@ -104,19 +106,19 @@ const Trending = () => {
                 <PostCard 
                   key={post.id}
                   id={post.id}
-                  slug={post.slug}
+                  slug={post.slug || null}
                   authorId={post.user_id}
               author={deriveProfileHandle(post.profiles as ProfileHandleSource | null, "anonymous")}
               timeAgo={getTimeAgo(post.created_at)}
               title={post.title || post.content?.substring(0, 100) || "Untitled"}
               content={post.content || ""}
-              image={post.image_url || ""}
+              imageR2Key={post.image_r2_key || null}
                   category={post.category}
               examType={post.exam_type || ""}
                   comments={post.comments_count || 0}
                   views={post.views_count || 0}
                   tags={post.tags || []}
-                  avatarUrl={post.profiles?.avatar_url}
+                  avatarUrl={getAvatarUrl(post.profiles, 40) || undefined}
                 />
               ))}
             </div>

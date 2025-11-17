@@ -26,7 +26,7 @@ export function usePostDetail(postId: string) {
       if (postData) {
         const { data: profileData } = await supabase
           .from("profiles")
-          .select("id, username, avatar_url")
+          .select("id, username, avatar_r2_key, avatar_url")
           .eq("id", postData.user_id)
           .single();
 

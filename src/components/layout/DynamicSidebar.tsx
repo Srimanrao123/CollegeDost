@@ -177,9 +177,10 @@ const DynamicSidebarComponent = () => {
           if (tagsData) {
             const tagsWithCount = await Promise.all(
               tagsData.map(async (tag: any) => {
+                // Optimized: Select only 'id' instead of '*' and use 'planned' count
                 const { count } = await (supabase as any)
                   .from('post_tags')
-                  .select('*', { count: 'exact', head: true })
+                  .select('id', { count: 'planned', head: true })
                   .eq('tag_id', tag.id);
                 return { name: tag.name, count: count || 0 };
               })
